@@ -39,6 +39,9 @@ export class Player {
     this.stepCycle = 0;
     this.isMoving = false;
 
+    // Grappling state — disables wall collision during pull
+    this.isGrappling = false;
+
     // Flash timer for damage feedback
     this._flashTimer = 0;
     this._originalColors = [];
@@ -194,12 +197,26 @@ export class Player {
       // Rotate to face movement direction
       this.mesh.rotation.y = Math.atan2(moveDir.x, moveDir.z);
 
-      // Walk cycle bob
+      // Walk cycle — advance step counter
       this.stepCycle += PLAYER_SPEED * 4.0 * delta;
+
+      // Torso bob
       this._torso.position.y = this._torsoBaseY + Math.abs(Math.sin(this.stepCycle)) * 0.08;
+
+      // Leg swing
+      this._leftLeg.rotation.x  =  Math.sin(this.stepCycle) * 0.45;
+      this._rightLeg.rotation.x = -Math.sin(this.stepCycle) * 0.45;
+
+      // Arm swing (opposite to legs)
+      this._leftArm.rotation.x  = -Math.sin(this.stepCycle) * 0.4;
+      this._rightArm.rotation.x =  Math.sin(this.stepCycle) * 0.4;
     } else {
-      // Settle torso back
-      this._torso.position.y = THREE.MathUtils.lerp(this._torso.position.y, this._torsoBaseY, 0.2);
+      // Settle torso and limbs back to neutral
+      this._torso.position.y    = THREE.MathUtils.lerp(this._torso.position.y, this._torsoBaseY, 0.2);
+      this._leftLeg.rotation.x  = THREE.MathUtils.lerp(this._leftLeg.rotation.x,  0, 0.2);
+      this._rightLeg.rotation.x = THREE.MathUtils.lerp(this._rightLeg.rotation.x, 0, 0.2);
+      this._leftArm.rotation.x  = THREE.MathUtils.lerp(this._leftArm.rotation.x,  0, 0.2);
+      this._rightArm.rotation.x = THREE.MathUtils.lerp(this._rightArm.rotation.x, 0, 0.2);
     }
 
     // --- Gravity ---

@@ -72,7 +72,7 @@ window.addEventListener('resize', () => {
 const keyState = {
   ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
   Space: false, KeyZ: false, KeyX: false, KeyC: false, Enter: false,
-  Escape: false,
+  Escape: false, ShiftLeft: false, ShiftRight: false,
 };
 const prevKeyState = {};
 const justPressed  = {};
@@ -180,8 +180,9 @@ const PLAYER_XZ_RADIUS = 0.55; // half-width used for wall collision
 const PLAYER_HALF_H    = 1.1;  // feet-to-center height
 
 // Push player out of building footprints (XZ walls).
-// Only applies when player is below the rooftop surface.
+// Skipped during grapple so the hook can pull Wellbot onto the roof.
 function resolveBuildingWalls(player, buildings) {
+  if (player.isGrappling) return;
   const p = player.mesh.position;
   for (const b of buildings) {
     // Player must be below rooftop to collide with walls
@@ -303,6 +304,13 @@ function gameLoop() {
 
   // ─── Game systems update ───
   player.update(delta, keyState);
+
+  // Jump — Shift key, only when grounded
+  if ((justPressed['ShiftLeft'] || justPressed['ShiftRight']) && player.isGrounded && !player.isDead) {
+    player.velocity.y = 12;
+    player.isGrounded = false;
+  }
+
   resolveBuildingWalls(player, buildings);
   resolveRooftops(player, buildings);
 

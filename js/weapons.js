@@ -317,19 +317,27 @@ export class WeaponSystem {
       hook.state = 'IDLE';
       hook.mesh.visible = false;
       hook.rope.visible = false;
+      player.isGrappling = false;
       return;
     }
 
-    // Find nearest building top edge within range
+    // Find nearest building within range — target the nearest edge of its
+    // rooftop so Wellbot is pulled UP and ONTO the roof, not through the wall.
     let bestDSq = GRAPPLE_RANGE * GRAPPLE_RANGE;
     let bestTarget = null;
+
+    const px = player.mesh.position.x;
+    const pz = player.mesh.position.z;
 
     for (const b of buildings) {
       if (!b.rooftopPos) continue;
       const dSq = distanceSqXZ(player.mesh.position, b.rooftopPos);
       if (dSq < bestDSq) {
         bestDSq = dSq;
-        bestTarget = b.rooftopPos.clone();
+        // Clamp player XZ to the building boundary → nearest roof edge point
+        const edgeX = Math.max(b.x - b.halfW, Math.min(b.x + b.halfW, px));
+        const edgeZ = Math.max(b.z - b.halfD, Math.min(b.z + b.halfD, pz));
+        bestTarget = new THREE.Vector3(edgeX, b.h + 1.5, edgeZ);
       }
     }
 
@@ -400,6 +408,22 @@ export class WeaponSystem {
         this._bomb.velocity.set(0, 0, 0);
       }
 
+      // Building wall hit — stop bomb on impact (detonate on fuse)
+      if (!this._bomb.grounded && buildings) {
+        const bp = this._bomb.mesh.position;
+        for (const b of buildings) {
+          if (bp.y > b.h) continue; // bomb is above building — skip
+          if (
+            bp.x > b.x - b.halfW - 0.3 && bp.x < b.x + b.halfW + 0.3 &&
+            bp.z > b.z - b.halfD - 0.3 && bp.z < b.z + b.halfD + 0.3
+          ) {
+            this._bomb.grounded = true;
+            this._bomb.velocity.set(0, 0, 0);
+            break;
+          }
+        }
+      }
+
       // Enemy contact check (before fuse)
       if (!this._bomb.grounded) {
         for (const e of enemies) {
@@ -443,6 +467,7 @@ export class WeaponSystem {
 
     const hook = this._hook;
     if (hook.state === 'TRAVELING') {
+      player.isGrappling = true;
       hook.mesh.position.addScaledVector(hook.velocity, delta);
 
       // Check if reached target
@@ -457,19 +482,20 @@ export class WeaponSystem {
       // Update rope
       this._updateRope(player);
     } else if (hook.state === 'ATTACHED') {
-      // Pull player toward hook target
+      player.isGrappling = true;
+      // Pull player toward hook target (roof edge point)
       const toTarget = hook.target.clone().sub(player.mesh.position);
       const dist = toTarget.length();
-      if (dist > 0.5) {
+      if (dist > 0.4) {
         toTarget.normalize();
         player.mesh.position.addScaledVector(toTarget, GRAPPLE_PULL_SPEED * delta);
         player.velocity.set(0, 0, 0);
       } else {
-        // Arrived — land on rooftop
+        // Arrived — snap to roof edge and release
         player.mesh.position.copy(hook.target);
-        player.mesh.position.y = hook.target.y; // stand on roof
-        player.isGrounded = true;
         player.velocity.set(0, 0, 0);
+        player.isGrounded = true;
+        player.isGrappling = false;
         hook.state = 'IDLE';
         hook.mesh.visible = false;
         hook.rope.visible = false;
@@ -477,9 +503,10 @@ export class WeaponSystem {
       this._updateRope(player);
     }
 
-    // If hook IDLE, hide rope
+    // If hook IDLE, hide rope and clear flag
     if (hook.state === 'IDLE') {
       hook.rope.visible = false;
+      player.isGrappling = false;
     }
   }
 
