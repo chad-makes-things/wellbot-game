@@ -26,7 +26,7 @@ scene.background = new THREE.Color(0x87CEEB); // Sky Blue
 // ─────────────────────────────────────────────
 // Camera — OrthographicCamera at isometric angle
 // ─────────────────────────────────────────────
-const VIEW_SIZE    = 22;
+const VIEW_SIZE    = 14;
 let aspect         = window.innerWidth / window.innerHeight;
 const camera = new THREE.OrthographicCamera(
   -VIEW_SIZE * aspect,
@@ -170,8 +170,68 @@ const weaponSystem = new WeaponSystem(scene);
 const hud          = new HUD(player, enemyManager);
 const shop         = new Shop(player);
 
-// Building data for grappling hook
+// Building data for grappling hook + collision
 const buildings = city.getBuildingData();
+
+// ─────────────────────────────────────────────
+// Building collision helpers
+// ─────────────────────────────────────────────
+const PLAYER_XZ_RADIUS = 0.55; // half-width used for wall collision
+const PLAYER_HALF_H    = 1.1;  // feet-to-center height
+
+// Push player out of building footprints (XZ walls).
+// Only applies when player is below the rooftop surface.
+function resolveBuildingWalls(player, buildings) {
+  const p = player.mesh.position;
+  for (const b of buildings) {
+    // Player must be below rooftop to collide with walls
+    if (p.y > b.h + PLAYER_HALF_H) continue;
+
+    const minX = b.x - b.halfW - PLAYER_XZ_RADIUS;
+    const maxX = b.x + b.halfW + PLAYER_XZ_RADIUS;
+    const minZ = b.z - b.halfD - PLAYER_XZ_RADIUS;
+    const maxZ = b.z + b.halfD + PLAYER_XZ_RADIUS;
+
+    if (p.x <= minX || p.x >= maxX || p.z <= minZ || p.z >= maxZ) continue;
+
+    // Overlapping — push out along shortest axis
+    const dLeft  = p.x - minX;
+    const dRight = maxX - p.x;
+    const dFront = p.z - minZ;
+    const dBack  = maxZ - p.z;
+    const minXOverlap = Math.min(dLeft, dRight);
+    const minZOverlap = Math.min(dFront, dBack);
+
+    if (minXOverlap < minZOverlap) {
+      p.x += dLeft < dRight ? -dLeft : dRight;
+    } else {
+      p.z += dFront < dBack ? -dFront : dBack;
+    }
+  }
+}
+
+// Clamp player onto rooftop surface when standing on a building.
+function resolveRooftops(player, buildings) {
+  const p = player.mesh.position;
+  for (const b of buildings) {
+    const roofY = b.h + PLAYER_HALF_H;
+    // Only catch player falling through roof (within ~2 units above)
+    if (p.y > roofY + 2 || p.y < roofY - 2) continue;
+
+    // Check XZ footprint (slightly inset so edge-walking feels natural)
+    const inset = 0.2;
+    if (
+      p.x > b.x - b.halfW + inset && p.x < b.x + b.halfW - inset &&
+      p.z > b.z - b.halfD + inset && p.z < b.z + b.halfD - inset
+    ) {
+      if (p.y < roofY) {
+        p.y = roofY;
+        player.velocity.y = 0;
+        player.isGrounded = true;
+      }
+    }
+  }
+}
 
 // ─────────────────────────────────────────────
 // Clock & FPS tracking
@@ -243,6 +303,8 @@ function gameLoop() {
 
   // ─── Game systems update ───
   player.update(delta, keyState);
+  resolveBuildingWalls(player, buildings);
+  resolveRooftops(player, buildings);
 
   weaponSystem.update(
     delta,

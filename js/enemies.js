@@ -45,7 +45,7 @@ class Enemy {
     this.attackRate  = 1.0;
     this.attackCooldown = 0;
     this.state       = 'IDLE';
-    this.isDead      = false;
+    this.isDead      = true; // pool starts as available — activate() sets false
 
     // Walk animation
     this.walkCycle = Math.random() * Math.PI * 2;
@@ -121,7 +121,7 @@ class Enemy {
   }
 
   activate(position) {
-    this.isDead = false;
+    this.isDead  = false;
     this.health = this.maxHealth;
     this.state  = 'IDLE';
     this.attackCooldown = 0;
