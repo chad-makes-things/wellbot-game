@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weller's Game — Survival in the World</title>
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- Import map: Three.js r165 via jsDelivr CDN — no bundler required -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Three.js renders here -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- ═══════════════════════════════════════════════
+       HUD OVERLAY
+       All HUD elements are positioned over the canvas.
+       pointer-events: none so clicks pass through.
+  ═══════════════════════════════════════════════ -->
+  <div id="hud">
+
+    <!-- Health Bar (Top Left) -->
+    <div id="hud-health-container">
+      <span class="health-heart">♥</span>
+      <div id="hud-health-track">
+        <div id="hud-health-bar"></div>
+        <div id="hud-health-label">HP</div>
+      </div>
+    </div>
+
+    <!-- Coin Counter (Top Right) -->
+    <div id="hud-coin-container">
+      <div class="coin-icon">C</div>
+      <div id="hud-coins">0</div>
+    </div>
+
+    <!-- Score / Enemies Defeated (Top Center) -->
+    <div id="hud-score">
+      ⚔ <span id="hud-defeated">0</span> Defeated
+    </div>
+
+    <!-- Weapon Indicator (Bottom Center) -->
+    <div id="hud-weapon">
+      <div id="hud-weapon-icon">GUN</div>
+      <div id="hud-weapon-name">PISTOL</div>
+    </div>
+
+    <!-- Minimap (Bottom Right) -->
+    <div id="hud-minimap">
+      <canvas id="minimap-canvas" width="150" height="150"></canvas>
+    </div>
+
+    <!-- Controls Hint (Bottom Left) -->
+    <div id="hud-controls-hint">
+      ↑↓←→ Move &nbsp;|&nbsp; Space Fire &nbsp;|&nbsp; Z Bomb &nbsp;|&nbsp; X Grapple<br>
+      Enter Shop
+    </div>
+
+  </div><!-- /#hud -->
+
+
+  <!-- ═══════════════════════════════════════════════
+       SHOP OVERLAY
+       Shown when Enter is pressed.
+       pointer-events: auto (blocking gameplay input).
+  ═══════════════════════════════════════════════ -->
+  <div id="shop-overlay" class="hidden">
+    <div id="shop-panel">
+
+      <!-- Header -->
+      <div id="shop-header">
+        <div id="shop-title">🛒 THE SHOP</div>
+        <div id="shop-close-hint">[Enter] to close</div>
+      </div>
+
+      <!-- Balance -->
+      <div id="shop-balance-row">
+        <span class="coin-dot">●</span>
+        <span id="shop-coins-balance">0</span> coins
+      </div>
+
+      <!-- Item list — built dynamically by shop.js -->
+      <div id="shop-item-list"></div>
+
+      <!-- Inline feedback (not enough coins, etc.) -->
+      <div id="shop-feedback"></div>
+
+      <!-- Controls hint -->
+      <div id="shop-controls-hint">
+        Arrow keys to browse &nbsp;•&nbsp; Space to buy &nbsp;•&nbsp; Enter to close
+      </div>
+
+    </div>
+  </div><!-- /#shop-overlay -->
+
+
+  <!-- ═══════════════════════════════════════════════
+       END SCREEN
+       Full-viewport overlay shown on game over.
+  ═══════════════════════════════════════════════ -->
+  <div id="end-screen" class="hidden">
+
+    <h1 id="end-headline">Nice first run!</h1>
+    <p id="end-subheadline">You defeated 0 enemies!</p>
+
+    <div id="end-stats">
+      <div class="end-stat-row">
+        <span class="end-stat-label">⚔ Enemies Defeated</span>
+        <span class="end-stat-value" id="end-stat-defeated">0</span>
+      </div>
+      <div class="end-stat-row">
+        <span class="end-stat-label">● Coins Earned</span>
+        <span class="end-stat-value" id="end-stat-coins">0</span>
+      </div>
+      <div class="end-stat-row">
+        <span class="end-stat-label">🔫 Weapons Unlocked</span>
+        <span class="end-stat-value" id="end-stat-weapons">1</span>
+      </div>
+    </div>
+
+    <button id="play-again">PLAY AGAIN!</button>
+
+  </div><!-- /#end-screen -->
+
+
+  <!-- Main entry point — ES6 module -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,562 @@
+/* ================================================================
+   Weller's Game — style.css
+   CSS Architecture per ui_ux_spec.md §5
+   Six sections:
+     1. Reset & Base
+     2. Canvas
+     3. HUD Overlay
+     4. Shop Overlay
+     5. End Screen
+     6. Animations
+   ================================================================ */
+
+/* ----------------------------------------------------------------
+   SECTION 1 — Reset & Base
+   ---------------------------------------------------------------- */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  font-family: 'Arial Black', 'Arial Bold', Gadget, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ----------------------------------------------------------------
+   SECTION 2 — Canvas
+   ---------------------------------------------------------------- */
+
+#game-canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+}
+
+/* ----------------------------------------------------------------
+   SECTION 3 — HUD Overlay
+   ---------------------------------------------------------------- */
+
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ── Health Bar (Top Left) ── */
+#hud-health-container {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.health-heart {
+  font-size: 18px;
+  color: #FF4136;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+#hud-health-track {
+  width: 200px;
+  height: 28px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  position: relative;
+}
+
+#hud-health-bar {
+  height: 100%;
+  width: 100%;
+  background: #2ECC40;
+  transition: width 0.1s ease, background-color 0.2s;
+}
+
+#hud-health-bar.pulse {
+  animation: hud-health-pulse 1.0s infinite;
+}
+
+/* HP label overlay on the bar */
+#hud-health-label {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  font-weight: bold;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 1px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── Coin Counter (Top Right) ── */
+#hud-coin-container {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 215, 0, 0.5);
+  border-radius: 8px;
+  padding: 6px 12px 6px 8px;
+}
+
+.coin-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #FFD700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: #8B6914;
+  flex-shrink: 0;
+}
+
+#hud-coins {
+  font-size: 32px;
+  font-family: 'Arial Black', sans-serif;
+  color: #FFD700;
+  text-shadow: 1px 1px 4px rgba(0,0,0,0.8);
+  line-height: 1;
+  transition: transform 0.1s ease;
+  min-width: 2ch;
+  text-align: right;
+}
+
+/* ── Score / Enemies Defeated (Top Center) ── */
+#hud-score {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.40);
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 24px;
+  font-family: 'Arial Black', sans-serif;
+  color: #FFFFFF;
+  text-shadow: 1px 1px 5px rgba(0,0,0,0.9);
+  white-space: nowrap;
+}
+
+/* ── Weapon Indicator (Bottom Center) ── */
+#hud-weapon {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.60);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 10px;
+  padding: 8px 20px 8px 12px;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+  min-width: 160px;
+  max-width: 260px;
+}
+
+#hud-weapon-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  background: #888888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #fff;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+#hud-weapon-name {
+  font-size: 20px;
+  font-family: 'Arial Black', sans-serif;
+  color: #FFFFFF;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ── Minimap (Bottom Right) ── */
+#hud-minimap {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 150px;
+  height: 150px;
+  background: rgba(0, 20, 40, 0.75);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+}
+
+#minimap-canvas {
+  width: 150px;
+  height: 150px;
+  display: block;
+}
+
+/* Controls hint (bottom left, small) */
+#hud-controls-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------
+   SECTION 4 — Shop Overlay
+   ---------------------------------------------------------------- */
+
+#shop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: shopFadeIn 0.15s ease;
+}
+
+#shop-overlay.hidden {
+  display: none !important;
+}
+
+@keyframes shopFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+#shop-panel {
+  width: 480px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #1A2332;
+  border: 2px solid rgba(255, 215, 0, 0.6);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Shop header */
+#shop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+  margin-bottom: 12px;
+}
+
+#shop-title {
+  font-size: 28px;
+  font-family: 'Arial Black', sans-serif;
+  color: #FFD700;
+  letter-spacing: 2px;
+}
+
+#shop-close-hint {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  font-family: 'Courier New', monospace;
+}
+
+/* Balance row */
+#shop-balance-row {
+  font-size: 18px;
+  font-family: 'Arial Black', sans-serif;
+  color: #FFD700;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#shop-balance-row .coin-dot {
+  font-size: 20px;
+  color: #FFD700;
+}
+
+/* Item rows */
+.shop-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.1s, border-left-color 0.1s;
+}
+
+.shop-row.highlighted {
+  background: rgba(255, 215, 0, 0.12);
+  border-left: 3px solid #FFD700;
+}
+
+.shop-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-family: 'Courier New', monospace;
+  color: #fff;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.shop-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.shop-item-name {
+  font-size: 18px;
+  font-family: 'Arial Black', sans-serif;
+  color: #FFFFFF;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-item-desc {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  font-family: 'Courier New', monospace;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-price {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 16px;
+  color: #FFD700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.shop-coin-icon {
+  font-size: 18px;
+  color: #FFD700;
+}
+
+.shop-buy-btn {
+  width: 72px;
+  height: 36px;
+  background: #2ECC40;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: 'Arial Black', sans-serif;
+  font-weight: bold;
+  color: #FFFFFF;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, transform 0.1s;
+}
+
+.shop-row.highlighted .shop-buy-btn {
+  background: #27AE60;
+  transform: scale(1.05);
+}
+
+.shop-buy-btn.owned {
+  background: transparent;
+  color: #2ECC40;
+  border: 1px solid #2ECC40;
+}
+
+/* Feedback message */
+#shop-feedback {
+  font-size: 14px;
+  font-style: italic;
+  font-family: 'Courier New', monospace;
+  min-height: 20px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* Controls hint row */
+#shop-controls-hint {
+  font-size: 13px;
+  color: rgba(255,255,255,0.45);
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  margin-top: 8px;
+}
+
+/* ----------------------------------------------------------------
+   SECTION 5 — End Screen
+   ---------------------------------------------------------------- */
+
+#end-screen {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 25, 0.92);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: 'Arial Black', sans-serif;
+  animation: endFadeIn 0.4s ease;
+}
+
+#end-screen.hidden {
+  display: none !important;
+}
+
+@keyframes endFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+#end-headline {
+  font-size: 40px;
+  color: #FFD700;
+  text-shadow: 0 2px 12px rgba(255,215,0,0.4);
+  margin-bottom: 8px;
+}
+
+#end-subheadline {
+  font-size: 24px;
+  color: #FFFFFF;
+  font-family: Arial, sans-serif;
+  margin-bottom: 32px;
+}
+
+#end-stats {
+  width: 360px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  padding: 20px 32px;
+  margin-bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.end-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.end-stat-label {
+  font-size: 18px;
+  color: rgba(255,255,255,0.7);
+  font-family: Arial, sans-serif;
+  font-weight: normal;
+}
+
+.end-stat-value {
+  font-size: 18px;
+  font-weight: bold;
+  color: #FFFFFF;
+}
+
+#play-again {
+  width: 220px;
+  height: 56px;
+  background: #2ECC40;
+  border: none;
+  border-radius: 10px;
+  font-size: 22px;
+  font-family: 'Arial Black', sans-serif;
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+  letter-spacing: 1px;
+}
+
+#play-again:hover {
+  background: #27AE60;
+  transform: scale(1.03);
+}
+
+#play-again:active {
+  background: #1E8C30;
+  transform: scale(0.97);
+}
+
+/* ----------------------------------------------------------------
+   SECTION 6 — Animations
+   ---------------------------------------------------------------- */
+
+@keyframes hud-health-pulse {
+  0%   { box-shadow: 0 0 0px #FF4136; }
+  50%  { box-shadow: 0 0 14px #FF4136; }
+  100% { box-shadow: 0 0 0px #FF4136; }
+}
+
+@keyframes shake {
+  0%   { transform: translateX(0); }
+  20%  { transform: translateX(-4px); }
+  40%  { transform: translateX(4px); }
+  60%  { transform: translateX(-4px); }
+  80%  { transform: translateX(4px); }
+  100% { transform: translateX(0); }
+}
+
+.shake {
+  animation: shake 0.3s ease;
+}
