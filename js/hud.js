@@ -19,6 +19,7 @@ export class HUD {
     this._coinPopTimer = 0;
     this._lastCoins    = 0;
     this._weaponFlash  = document.getElementById('hud-weapon-flash');
+    this._stageDisplay = document.getElementById('hud-stage');
   }
 
   // Show big centered weapon name when player switches weapons
@@ -86,6 +87,11 @@ export class HUD {
     // ─── Weapon indicator ───
     const wName = weaponSystem ? weaponSystem.currentWeaponName(player) : 'PISTOL';
     if (this.weaponName) this.weaponName.textContent = wName;
+
+    // ─── Difficulty stage ───
+    if (this._stageDisplay) {
+      this._stageDisplay.textContent = this.enemyManager.stageName || '';
+    }
 
     // ─── Minimap ───
     this._drawMinimap(enemies);

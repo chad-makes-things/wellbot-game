@@ -37,8 +37,9 @@ const ATTACK_RANGE_SQ  = 1.8 * 1.8;  // ~3.24
 const IDLE_RETURN_SQ   = 22 * 22;    // 484 — hysteresis back to IDLE
 
 // Spawn boundary
-const SPAWN_RADIUS = 28;
-const MAX_ENEMIES  = 5;
+const SPAWN_RADIUS = 35;
+const MAX_ENEMIES  = 12;
+const RECYCLE_DIST_SQ = 70 * 70; // enemies farther than 70u get recycled
 
 // Geometries — initialized lazily on first use (safe for module-level scope)
 let _coinGeo = null;
@@ -148,9 +149,10 @@ class Enemy {
     return group;
   }
 
-  activate(position) {
+  activate(position, hpMultiplier = 1.0, speedMultiplier = 1.0) {
     this.isDead  = false;
-    this.health = this.maxHealth;
+    this.health = Math.round(this.maxHealth * hpMultiplier);
+    this.speed  = 3.0 * speedMultiplier;
     this.state  = 'IDLE';
     this.attackCooldown = 0;
     this.walkCycle = Math.random() * Math.PI * 2;
@@ -249,9 +251,7 @@ class Enemy {
     // Keep on ground
     if (this.mesh.position.y < this.baseY) this.mesh.position.y = this.baseY;
 
-    // World bounds
-    this.mesh.position.x = Math.max(-48, Math.min(48, this.mesh.position.x));
-    this.mesh.position.z = Math.max(-48, Math.min(48, this.mesh.position.z));
+    // No world bounds — infinite city
 
     // Update floating indicator position — bob above enemy
     this._indicatorBob += delta * 2.0;
@@ -307,6 +307,13 @@ export class EnemyManager {
     this._respawnTimer  = 0;
     this._respawnInterval = 10; // seconds between auto-respawn waves
 
+    // Difficulty scaling
+    this._targetEnemyCount = 5;
+    this._hpMultiplier = 1.0;
+    this._speedMultiplier = 1.0;
+    this._difficultyStage = 1;
+    this._stageName = 'Gentle Start';
+
     // Coin material (shared)
     this._coinMat = mkMat(C_COIN_GOLD, C_COIN_EMISSIVE, 0.4);
 
@@ -330,7 +337,7 @@ export class EnemyManager {
   spawnAt(position) {
     const enemy = this._acquireEnemy();
     if (!enemy) return null;
-    enemy.activate(position.clone());
+    enemy.activate(position.clone(), this._hpMultiplier, this._speedMultiplier);
     return enemy;
   }
 
@@ -352,20 +359,39 @@ export class EnemyManager {
     }
   }
 
-  _spawnFromEdges(count) {
+  _spawnFromEdges(count, player, buildings) {
     const spawned = [];
+    const px = player ? player.mesh.position.x : 0;
+    const pz = player ? player.mesh.position.z : 0;
     for (let i = 0; i < count; i++) {
       if (this.liveCount >= MAX_ENEMIES) break;
-      const angle = Math.random() * Math.PI * 2;
-      const pos = new THREE.Vector3(
-        Math.cos(angle) * SPAWN_RADIUS,
-        0,
-        Math.sin(angle) * SPAWN_RADIUS
-      );
-      const e = this.spawnAt(pos);
-      if (e) spawned.push(e);
+      // Try up to 5 positions to avoid spawning inside buildings
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const angle = Math.random() * Math.PI * 2;
+        const pos = new THREE.Vector3(
+          px + Math.cos(angle) * SPAWN_RADIUS,
+          0,
+          pz + Math.sin(angle) * SPAWN_RADIUS
+        );
+        if (!this._isInsideBuilding(pos, buildings)) {
+          const e = this.spawnAt(pos);
+          if (e) spawned.push(e);
+          break;
+        }
+      }
     }
     return spawned;
+  }
+
+  _isInsideBuilding(pos, buildings) {
+    if (!buildings) return false;
+    for (const b of buildings) {
+      if (pos.x > b.x - b.halfW - 0.5 && pos.x < b.x + b.halfW + 0.5 &&
+          pos.z > b.z - b.halfD - 0.5 && pos.z < b.z + b.halfD + 0.5) {
+        return true;
+      }
+    }
+    return false;
   }
 
   onEnemyDefeated(enemy) {
@@ -400,6 +426,14 @@ export class EnemyManager {
       if (!enemy.isDead && enemy.mesh.visible) {
         enemy.update(delta, player);
         if (buildings) this._resolveEnemyBuildings(enemy, buildings);
+
+        // Recycle enemies too far from player
+        const dSq = distanceSqXZ(enemy.mesh.position, player.mesh.position);
+        if (dSq > RECYCLE_DIST_SQ) {
+          enemy.isDead = true;
+          enemy.mesh.visible = false;
+          enemy._indicator.visible = false;
+        }
       }
     }
 
@@ -425,13 +459,14 @@ export class EnemyManager {
     // Particle puffs
     updateParticlePool(this._puffPool, delta);
 
-    // Auto-respawn: maintain up to MAX_ENEMIES active
+    // Auto-respawn: maintain up to target enemy count
     this._respawnTimer += delta;
     if (this._respawnTimer >= this._respawnInterval) {
       this._respawnTimer = 0;
-      if (this.liveCount < MAX_ENEMIES) {
-        const needed = MAX_ENEMIES - this.liveCount;
-        this._spawnFromEdges(needed);
+      const target = this._targetEnemyCount || 5;
+      if (this.liveCount < target) {
+        const needed = Math.min(3, target - this.liveCount); // spawn up to 3 at a time
+        this._spawnFromEdges(needed, player, buildings);
       }
     }
   }
@@ -465,6 +500,27 @@ export class EnemyManager {
       }
     }
   }
+
+  // Difficulty scaling — call each frame with player's lifetime coins
+  updateDifficulty(totalCoins) {
+    let stage, name, target, hp, spd, interval;
+    if (totalCoins < 50)       { stage=1; name='Gentle Start';     target=5;  hp=1.0; spd=1.0;  interval=10; }
+    else if (totalCoins < 150) { stage=2; name='Getting Busy';     target=5;  hp=1.0; spd=1.1;  interval=8;  }
+    else if (totalCoins < 300) { stage=3; name='Heating Up';       target=6;  hp=1.2; spd=1.15; interval=7;  }
+    else if (totalCoins < 500) { stage=4; name='Serious Trouble';  target=7;  hp=1.5; spd=1.2;  interval=6;  }
+    else if (totalCoins < 750) { stage=5; name='Overwhelm';        target=9;  hp=1.8; spd=1.3;  interval=5;  }
+    else                       { stage=6; name='Maximum Chaos';    target=12; hp=2.2; spd=1.4;  interval=4;  }
+
+    this._difficultyStage = stage;
+    this._stageName = name;
+    this._targetEnemyCount = target;
+    this._hpMultiplier = hp;
+    this._speedMultiplier = spd;
+    this._respawnInterval = interval;
+  }
+
+  get difficultyStage() { return this._difficultyStage; }
+  get stageName() { return this._stageName; }
 
   get defeatedCount() {
     return this._defeatedCount;

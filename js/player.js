@@ -238,9 +238,7 @@ export class Player {
       this.isGrounded = true;
     }
 
-    // World boundary clamp — keep Wellbot on the city ground
-    this.mesh.position.x = Math.max(-48, Math.min(48, this.mesh.position.x));
-    this.mesh.position.z = Math.max(-48, Math.min(48, this.mesh.position.z));
+    // No world boundary — infinite city
   }
 
   takeDamage(amount) {

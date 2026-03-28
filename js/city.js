@@ -1,224 +1,315 @@
-// city.js — Building generation (hardcoded layout for Alpha)
-// Beta will have procedural city generation.
+// city.js — Procedural chunk-based infinite city (Beta)
+// Generates buildings as the player moves. Seeded RNG for deterministic layout.
 
 import * as THREE from 'three';
+import { createRNG } from './utils.js';
 
 // Colors from art_style_guide.md
-const C_CREAM   = 0xF2E8D5; // Building Cream
-const C_SLATE   = 0x6D8096; // Building Slate
-const C_TAN     = 0xC9A96E; // Building Warm Tan
-const C_TEAL    = 0x2A9D8F; // Building Teal (landmark — 1 per block)
-const C_ROOFTOP = 0xB5B5B8; // Rooftop Concrete
-const C_WINDOW  = 0xFFE66D; // Window Yellow
-const C_ASPHALT = 0x3D3D3D; // Street Asphalt
+const C_CREAM    = 0xF2E8D5;
+const C_SLATE    = 0x6D8096;
+const C_TAN      = 0xC9A96E;
+const C_TEAL     = 0x2A9D8F;
+const C_ROOFTOP  = 0xB5B5B8;
+const C_WINDOW   = 0xFFE66D;
+const C_ASPHALT  = 0x3D3D3D;
 const C_SIDEWALK = 0xC8C0B0;
-const C_PLAZA   = 0xE8E0D0; // Plaza Pale Stone
-const C_STRIPE  = 0xF5F5F5; // Lane marking white
+const C_PLAZA    = 0xE8E0D0;
+const C_STRIPE   = 0xF5F5F5;
 
+const BUILDING_COLORS = [C_CREAM, C_SLATE, C_TAN];
+
+// Chunk config
+const CHUNK_SIZE     = 48;    // world units per chunk
+const LOAD_RADIUS    = 2;     // chunks around player (5x5 grid)
+const UNLOAD_RADIUS  = 3;     // chunks beyond this get disposed
+const LOT_SIZE       = 16;    // subdivision per chunk (3x3 lots)
+const LOTS_PER_AXIS  = 3;
+const BUILD_CHANCE   = 0.55;  // probability a lot gets a building
+
+// Shared geometries (reused across chunks)
+const _windowGeoNS = new THREE.BoxGeometry(0.8, 0.6, 0.1);
+const _windowGeoEW = new THREE.BoxGeometry(0.1, 0.6, 0.8);
+const _stripeGeoNS = new THREE.BoxGeometry(0.15, 0.02, 5.0);
+const _stripeGeoEW = new THREE.BoxGeometry(5.0, 0.02, 0.15);
+
+// Shared materials
 function mkMat(color, emissive = 0x000000, emissiveIntensity = 0) {
   return new THREE.MeshLambertMaterial({ color, emissive, emissiveIntensity });
 }
+const _windowMat  = mkMat(C_WINDOW, 0x222200, 0.6);
+const _roofMat    = mkMat(C_ROOFTOP);
+const _sidewalkMat = mkMat(C_SIDEWALK);
+const _stripeMat  = mkMat(C_STRIPE);
+const _asphaltMat = mkMat(C_ASPHALT);
+const _plazaMat   = mkMat(C_PLAZA);
 
 // ─────────────────────────────────────────────
-// Building spec: { x, z, w, d, h, color }
-// All positions are world-space centers.
+// Chunk class — one tile of the city
 // ─────────────────────────────────────────────
-const BUILDING_SPECS = [
-  // --- North block ---
-  { x: -20, z: -20, w: 8,  d: 8,  h: 20, color: C_CREAM },
-  { x: -8,  z: -22, w: 6,  d: 6,  h: 12, color: C_SLATE },
-  { x:  4,  z: -20, w: 7,  d: 7,  h: 16, color: C_TEAL  },  // landmark
-  { x:  16, z: -20, w: 9,  d: 7,  h: 24, color: C_CREAM },
-  { x:  24, z: -18, w: 5,  d: 6,  h: 8,  color: C_TAN   },
+class Chunk {
+  constructor(cx, cz, scene) {
+    this.cx = cx;
+    this.cz = cz;
+    this.scene = scene;
+    this.meshes = [];     // all THREE.Mesh objects in this chunk
+    this.buildings = [];  // building data for collision/grapple
 
-  // --- East block ---
-  { x:  26, z: -4,  w: 6,  d: 8,  h: 18, color: C_SLATE },
-  { x:  28, z:  8,  w: 7,  d: 6,  h: 12, color: C_CREAM },
-  { x:  26, z:  20, w: 6,  d: 7,  h: 16, color: C_TAN   },
-
-  // --- South block ---
-  { x:  14, z:  24, w: 8,  d: 6,  h: 10, color: C_SLATE },
-  { x:   2, z:  26, w: 7,  d: 7,  h: 20, color: C_CREAM },
-  { x: -10, z:  24, w: 6,  d: 6,  h: 14, color: C_SLATE },
-  { x: -22, z:  22, w: 8,  d: 8,  h: 12, color: C_TAN   },
-
-  // --- West block ---
-  { x: -28, z:  8,  w: 6,  d: 7,  h: 16, color: C_CREAM },
-  { x: -26, z: -6,  w: 7,  d: 6,  h: 10, color: C_SLATE },
-
-  // --- Inner ring (creates streets around central plaza) ---
-  { x: -14, z: -10, w: 5,  d: 5,  h: 8,  color: C_TAN   },
-  { x:  12, z: -10, w: 5,  d: 5,  h: 8,  color: C_SLATE },
-  { x:  12, z:  10, w: 5,  d: 5,  h: 8,  color: C_CREAM },
-  { x: -14, z:  10, w: 5,  d: 5,  h: 8,  color: C_SLATE },
-
-  // --- Accent corner towers ---
-  { x: -32, z: -28, w: 6,  d: 6,  h: 28, color: C_CREAM },
-  { x:  32, z: -28, w: 6,  d: 6,  h: 24, color: C_SLATE },
-  { x:  32, z:  28, w: 6,  d: 6,  h: 20, color: C_CREAM },
-  { x: -32, z:  28, w: 6,  d: 6,  h: 28, color: C_TAN   },
-];
-
-function addWindowsToFacade(scene, buildX, buildZ, buildY, wallFaceDir, buildW, buildD, buildH) {
-  // wallFaceDir: 'north','south','east','west'
-  const windowGeo = new THREE.BoxGeometry(0.8, 0.6, 0.1);
-  const windowMat = mkMat(C_WINDOW, 0x222200, 0.6);
-
-  let spanW, spawnZ, facingAxis;
-  if (wallFaceDir === 'north' || wallFaceDir === 'south') {
-    spanW = buildW;
-    const sign = wallFaceDir === 'north' ? -1 : 1;
-    spawnZ = buildZ + sign * (buildD / 2 + 0.05);
-    for (let row = 1.5; row < buildH - 1.0; row += 2.0) {
-      for (let col = -buildW / 2 + 1.0; col < buildW / 2 - 0.4; col += 1.5) {
-        const w = new THREE.Mesh(windowGeo, windowMat);
-        w.position.set(buildX + col, buildY + row, spawnZ);
-        if (wallFaceDir === 'north') w.rotation.y = Math.PI;
-        scene.add(w);
-      }
-    }
-  } else {
-    // east / west
-    const windowGeoEW = new THREE.BoxGeometry(0.1, 0.6, 0.8);
-    const sign = wallFaceDir === 'east' ? 1 : -1;
-    const spawnX = buildX + sign * (buildW / 2 + 0.05);
-    for (let row = 1.5; row < buildH - 1.0; row += 2.0) {
-      for (let col = -buildD / 2 + 1.0; col < buildD / 2 - 0.4; col += 1.5) {
-        const w = new THREE.Mesh(windowGeoEW, windowMat);
-        w.position.set(spawnX, buildY + row, buildZ + col);
-        scene.add(w);
-      }
-    }
-  }
-}
-
-export class City {
-  constructor(scene) {
-    this.scene     = scene;
-    this.buildings = []; // { mesh, rooftopPos, w, d, h }
-
-    this._buildGround();
-    this._buildPlaza();
-    this._buildStreetMarkings();
-    this._buildBuildings();
-    this._addFog(scene);
+    this._generate();
   }
 
-  _buildGround() {
-    // Large asphalt ground plane
-    const geo = new THREE.PlaneGeometry(200, 200);
-    const mat = mkMat(C_ASPHALT);
-    const ground = new THREE.Mesh(geo, mat);
+  _generate() {
+    const seed = this.cx * 73856093 ^ this.cz * 19349663;
+    const rng = createRNG(seed);
+    const originX = this.cx * CHUNK_SIZE;
+    const originZ = this.cz * CHUNK_SIZE;
+
+    // Ground plane for this chunk
+    this._addGround(originX, originZ);
+
+    // Spawn plaza at chunk (0,0) — no buildings in center lots
+    const isSpawnChunk = (this.cx === 0 && this.cz === 0);
+
+    // Pick one lot for a landmark teal building
+    const landmarkLot = Math.floor(rng() * (LOTS_PER_AXIS * LOTS_PER_AXIS));
+    let lotIndex = 0;
+    let hasLandmark = false;
+
+    // Generate lots
+    for (let lx = 0; lx < LOTS_PER_AXIS; lx++) {
+      for (let lz = 0; lz < LOTS_PER_AXIS; lz++) {
+        const lotCenterX = originX + (lx - 1) * LOT_SIZE;
+        const lotCenterZ = originZ + (lz - 1) * LOT_SIZE;
+
+        // Spawn plaza: skip center 4 lots (the 2x2 around origin)
+        if (isSpawnChunk && Math.abs(lotCenterX) < LOT_SIZE && Math.abs(lotCenterZ) < LOT_SIZE) {
+          if (lx === 1 && lz === 1) {
+            this._addPlaza(0, 0);
+          }
+          lotIndex++;
+          continue;
+        }
+
+        // Roll for building
+        if (rng() > BUILD_CHANCE) {
+          lotIndex++;
+          continue;
+        }
+
+        // Building dimensions
+        const w = 5 + rng() * 7;
+        const d = 5 + rng() * 7;
+        // Height distribution: 40% short, 40% medium, 20% tall
+        const hRoll = rng();
+        let h;
+        if (hRoll < 0.4)      h = 6 + rng() * 6;    // 6-12
+        else if (hRoll < 0.8) h = 12 + rng() * 8;   // 12-20
+        else                  h = 20 + rng() * 8;   // 20-28
+
+        // Jitter position within lot (keep away from lot edges)
+        const maxJitter = (LOT_SIZE - Math.max(w, d)) / 2 - 1;
+        const jitter = Math.max(0, maxJitter);
+        const bx = lotCenterX + (rng() - 0.5) * jitter;
+        const bz = lotCenterZ + (rng() - 0.5) * jitter;
+
+        // Color
+        let color;
+        if (lotIndex === landmarkLot && !hasLandmark) {
+          color = C_TEAL;
+          hasLandmark = true;
+        } else {
+          color = BUILDING_COLORS[Math.floor(rng() * BUILDING_COLORS.length)];
+        }
+
+        this._addBuilding(bx, bz, w, d, h, color);
+        lotIndex++;
+      }
+    }
+
+    // Street markings along chunk axes
+    this._addStreetMarkings(originX, originZ);
+  }
+
+  _addGround(ox, oz) {
+    const geo = new THREE.PlaneGeometry(CHUNK_SIZE + 2, CHUNK_SIZE + 2);
+    const ground = new THREE.Mesh(geo, _asphaltMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = 0;
+    ground.position.set(ox, -0.01, oz);
     this.scene.add(ground);
+    this.meshes.push(ground);
   }
 
-  _buildPlaza() {
-    // Central open combat plaza — 20x20 pale stone
-    const plazaGeo = new THREE.PlaneGeometry(18, 18);
-    const plazaMat = mkMat(C_PLAZA);
-    const plaza = new THREE.Mesh(plazaGeo, plazaMat);
+  _addPlaza(px, pz) {
+    const geo = new THREE.PlaneGeometry(18, 18);
+    const plaza = new THREE.Mesh(geo, _plazaMat);
     plaza.rotation.x = -Math.PI / 2;
-    plaza.position.set(0, 0.01, 0); // slightly above asphalt
+    plaza.position.set(px, 0.01, pz);
     this.scene.add(plaza);
+    this.meshes.push(plaza);
   }
 
-  _buildStreetMarkings() {
-    // Lane markings along main streets
-    const stripeGeo = new THREE.BoxGeometry(0.15, 0.02, 5.0);
-    const stripeMat = mkMat(C_STRIPE);
-
-    const stripePositions = [
-      // North-south street (x ≈ -3 and +3)
-      { x: -3,  z: -15 }, { x: -3,  z: -5 }, { x: -3,  z:  5 }, { x: -3,  z: 15 },
-      { x:  3,  z: -15 }, { x:  3,  z: -5 }, { x:  3,  z:  5 }, { x:  3,  z: 15 },
-      // East-west street (z ≈ -3 and +3)
-    ];
-    for (const sp of stripePositions) {
-      const stripe = new THREE.Mesh(stripeGeo, stripeMat);
-      stripe.position.set(sp.x, 0.03, sp.z);
-      this.scene.add(stripe);
-    }
-
-    // East-west stripes (rotated)
-    const stripeGeoEW = new THREE.BoxGeometry(5.0, 0.02, 0.15);
-    for (const ez of [-15, -5, 5, 15]) {
-      for (const ex of [-3, 3]) {
-        const stripe = new THREE.Mesh(stripeGeoEW, stripeMat);
-        stripe.position.set(ex, 0.03, ez);
-        this.scene.add(stripe);
-      }
-    }
-  }
-
-  _buildBuildings() {
-    for (const spec of BUILDING_SPECS) {
-      this._addBuilding(spec);
-    }
-  }
-
-  _addBuilding({ x, z, w, d, h, color }) {
-    // Main body
+  _addBuilding(x, z, w, d, h, color) {
+    // Body
     const bodyGeo = new THREE.BoxGeometry(w, h, d);
     const bodyMat = mkMat(color);
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.position.set(x, h / 2, z);
     this.scene.add(body);
+    this.meshes.push(body);
 
     // Rooftop cap
     const roofGeo = new THREE.BoxGeometry(w, 0.15, d);
-    const roofMat = mkMat(C_ROOFTOP);
-    const roof = new THREE.Mesh(roofGeo, roofMat);
+    const roof = new THREE.Mesh(roofGeo, _roofMat);
     roof.position.set(x, h + 0.075, z);
     this.scene.add(roof);
+    this.meshes.push(roof);
 
-    // Sidewalk strip around base
+    // Sidewalks
     const swGeo = new THREE.BoxGeometry(w + 1.5, 0.12, 1.5);
-    const swMat = mkMat(C_SIDEWALK);
-    // North sidewalk
-    const swN = new THREE.Mesh(swGeo, swMat);
-    swN.position.set(x, 0.06, z - d / 2 - 0.75);
-    this.scene.add(swN);
-    // South sidewalk
-    const swS = new THREE.Mesh(swGeo, swMat.clone());
-    swS.position.set(x, 0.06, z + d / 2 + 0.75);
-    this.scene.add(swS);
-
-    // East-west sidewalks
     const swGeoEW = new THREE.BoxGeometry(1.5, 0.12, d);
-    const swW = new THREE.Mesh(swGeoEW, swMat.clone());
+
+    const swN = new THREE.Mesh(swGeo, _sidewalkMat);
+    swN.position.set(x, 0.06, z - d / 2 - 0.75);
+    this.scene.add(swN); this.meshes.push(swN);
+
+    const swS = new THREE.Mesh(swGeo, _sidewalkMat);
+    swS.position.set(x, 0.06, z + d / 2 + 0.75);
+    this.scene.add(swS); this.meshes.push(swS);
+
+    const swW = new THREE.Mesh(swGeoEW, _sidewalkMat);
     swW.position.set(x - w / 2 - 0.75, 0.06, z);
-    this.scene.add(swW);
-    const swE = new THREE.Mesh(swGeoEW, swMat.clone());
+    this.scene.add(swW); this.meshes.push(swW);
+
+    const swE = new THREE.Mesh(swGeoEW, _sidewalkMat);
     swE.position.set(x + w / 2 + 0.75, 0.06, z);
-    this.scene.add(swE);
+    this.scene.add(swE); this.meshes.push(swE);
 
-    // Windows on all four facades
-    addWindowsToFacade(this.scene, x, z, 0, 'north', w, d, h);
-    addWindowsToFacade(this.scene, x, z, 0, 'south', w, d, h);
-    addWindowsToFacade(this.scene, x, z, 0, 'east', w, d, h);
-    addWindowsToFacade(this.scene, x, z, 0, 'west', w, d, h);
+    // Windows on all 4 facades
+    this._addWindows(x, z, w, d, h, 'north');
+    this._addWindows(x, z, w, d, h, 'south');
+    this._addWindows(x, z, w, d, h, 'east');
+    this._addWindows(x, z, w, d, h, 'west');
 
-    // Rooftop position for grappling hook
+    // Store building data for collision/grapple
     const rooftopPos = new THREE.Vector3(x, h + 0.15, z);
-
-    // Store building data
     this.buildings.push({
-      mesh: body,
-      rooftopPos,
       x, z, w, d, h,
       halfW: w / 2,
       halfD: d / 2,
+      rooftopPos,
     });
   }
 
-  _addFog(scene) {
-    scene.fog = new THREE.Fog(0xC8E6F5, 80, 200);
+  _addWindows(bx, bz, w, d, h, face) {
+    if (face === 'north' || face === 'south') {
+      const sign = face === 'north' ? -1 : 1;
+      const wz = bz + sign * (d / 2 + 0.05);
+      for (let row = 1.5; row < h - 1.0; row += 2.0) {
+        for (let col = -w / 2 + 1.0; col < w / 2 - 0.4; col += 1.5) {
+          const win = new THREE.Mesh(_windowGeoNS, _windowMat);
+          win.position.set(bx + col, row, wz);
+          if (face === 'north') win.rotation.y = Math.PI;
+          this.scene.add(win);
+          this.meshes.push(win);
+        }
+      }
+    } else {
+      const sign = face === 'east' ? 1 : -1;
+      const wx = bx + sign * (w / 2 + 0.05);
+      for (let row = 1.5; row < h - 1.0; row += 2.0) {
+        for (let col = -d / 2 + 1.0; col < d / 2 - 0.4; col += 1.5) {
+          const win = new THREE.Mesh(_windowGeoEW, _windowMat);
+          win.position.set(wx, row, bz + col);
+          this.scene.add(win);
+          this.meshes.push(win);
+        }
+      }
+    }
   }
 
-  // Returns array of building data for grapple hook target selection
+  _addStreetMarkings(ox, oz) {
+    // N-S stripes
+    for (let z = oz - CHUNK_SIZE / 2 + 2.5; z < oz + CHUNK_SIZE / 2; z += 10) {
+      const s = new THREE.Mesh(_stripeGeoNS, _stripeMat);
+      s.position.set(ox, 0.03, z);
+      this.scene.add(s); this.meshes.push(s);
+    }
+    // E-W stripes
+    for (let x = ox - CHUNK_SIZE / 2 + 2.5; x < ox + CHUNK_SIZE / 2; x += 10) {
+      const s = new THREE.Mesh(_stripeGeoEW, _stripeMat);
+      s.position.set(x, 0.03, oz);
+      this.scene.add(s); this.meshes.push(s);
+    }
+  }
+
+  dispose() {
+    for (const m of this.meshes) {
+      this.scene.remove(m);
+      if (m.geometry) m.geometry.dispose();
+      // Don't dispose shared materials
+    }
+    this.meshes.length = 0;
+    this.buildings.length = 0;
+  }
+}
+
+// ─────────────────────────────────────────────
+// City manager — loads/unloads chunks around player
+// ─────────────────────────────────────────────
+export class City {
+  constructor(scene) {
+    this.scene = scene;
+    this._chunks = new Map(); // key "cx,cz" → Chunk
+    this._lastPlayerCX = null;
+    this._lastPlayerCZ = null;
+
+    this._addFog(scene);
+  }
+
+  // Call once per frame with player position
+  update(playerX, playerZ) {
+    const pcx = Math.floor(playerX / CHUNK_SIZE);
+    const pcz = Math.floor(playerZ / CHUNK_SIZE);
+
+    // Skip if player hasn't changed chunk
+    if (pcx === this._lastPlayerCX && pcz === this._lastPlayerCZ) return;
+    this._lastPlayerCX = pcx;
+    this._lastPlayerCZ = pcz;
+
+    // Load chunks within radius
+    for (let dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx++) {
+      for (let dz = -LOAD_RADIUS; dz <= LOAD_RADIUS; dz++) {
+        const cx = pcx + dx;
+        const cz = pcz + dz;
+        const key = `${cx},${cz}`;
+        if (!this._chunks.has(key)) {
+          this._chunks.set(key, new Chunk(cx, cz, this.scene));
+        }
+      }
+    }
+
+    // Unload chunks beyond unload radius
+    for (const [key, chunk] of this._chunks) {
+      const adx = Math.abs(chunk.cx - pcx);
+      const adz = Math.abs(chunk.cz - pcz);
+      if (adx > UNLOAD_RADIUS || adz > UNLOAD_RADIUS) {
+        chunk.dispose();
+        this._chunks.delete(key);
+      }
+    }
+  }
+
+  // Returns combined building data from all loaded chunks
   getBuildingData() {
-    return this.buildings;
+    const all = [];
+    for (const chunk of this._chunks.values()) {
+      for (const b of chunk.buildings) {
+        all.push(b);
+      }
+    }
+    return all;
+  }
+
+  _addFog(scene) {
+    scene.fog = new THREE.Fog(0xC8E6F5, 60, 160);
   }
 }

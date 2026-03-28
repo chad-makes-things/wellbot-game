@@ -201,8 +201,9 @@ const weaponSystem = new WeaponSystem(scene);
 const hud          = new HUD(player, enemyManager);
 const shop         = new Shop(player);
 
-// Building data for grappling hook + collision
-const buildings = city.getBuildingData();
+// Load initial chunks around spawn and get building data
+city.update(0, 0);
+let buildings = city.getBuildingData();
 
 // ─────────────────────────────────────────────
 // Building collision helpers
@@ -343,6 +344,10 @@ function gameLoop() {
   }
 
   // ─── Game systems update ───
+  // Update procedural city chunks around player
+  city.update(player.mesh.position.x, player.mesh.position.z);
+  buildings = city.getBuildingData();
+
   player.update(delta, keyState, cameraAzimuth);
 
   // Weapon cycle — C key
@@ -373,6 +378,7 @@ function gameLoop() {
     buildings
   );
 
+  enemyManager.updateDifficulty(player.totalCoinsEarned);
   enemyManager.update(delta, player, buildings);
 
   cameraFollow(player, delta);

@@ -231,6 +231,18 @@ body {
   display: block;
 }
 
+/* Difficulty stage indicator (above controls hint) */
+#hud-stage {
+  position: absolute;
+  bottom: 58px;
+  left: 20px;
+  font-family: 'Arial Black', sans-serif;
+  font-size: 13px;
+  color: rgba(255, 200, 50, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
 /* Controls hint (bottom left, small) */
 #hud-controls-hint {
   position: absolute;
