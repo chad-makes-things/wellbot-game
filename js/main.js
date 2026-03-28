@@ -212,21 +212,25 @@ function resolveBuildingWalls(player, buildings) {
 }
 
 // Clamp player onto rooftop surface when standing on a building.
+// Runs every frame — keeps Wellbot standing on any roof he lands on.
 function resolveRooftops(player, buildings) {
   const p = player.mesh.position;
   for (const b of buildings) {
-    const roofY = b.h + PLAYER_HALF_H;
-    // Only catch player falling through roof (within ~2 units above)
-    if (p.y > roofY + 2 || p.y < roofY - 2) continue;
+    const roofStandY = b.h + PLAYER_HALF_H; // Y where player's feet meet the roof
 
-    // Check XZ footprint (slightly inset so edge-walking feels natural)
-    const inset = 0.2;
+    // Only check buildings whose roof is below the player's current height
+    // and the player isn't way above (just fell from a much taller building).
+    if (p.y > roofStandY + 4) continue;  // player is too high above this roof
+    if (p.y < roofStandY - 0.5) continue; // player has already fallen through
+
+    // Check XZ footprint — small inset so edge-walking naturally falls off
+    const inset = 0.3;
     if (
       p.x > b.x - b.halfW + inset && p.x < b.x + b.halfW - inset &&
       p.z > b.z - b.halfD + inset && p.z < b.z + b.halfD - inset
     ) {
-      if (p.y < roofY) {
-        p.y = roofY;
+      if (p.y <= roofStandY) {
+        p.y = roofStandY;
         player.velocity.y = 0;
         player.isGrounded = true;
       }
@@ -324,7 +328,7 @@ function gameLoop() {
     buildings
   );
 
-  enemyManager.update(delta, player);
+  enemyManager.update(delta, player, buildings);
 
   cameraFollow(player);
 

@@ -349,11 +349,12 @@ export class EnemyManager {
     }
   }
 
-  update(delta, player) {
+  update(delta, player, buildings) {
     // Update enemies
     for (const enemy of this.enemies) {
       if (!enemy.isDead && enemy.mesh.visible) {
         enemy.update(delta, player);
+        if (buildings) this._resolveEnemyBuildings(enemy, buildings);
       }
     }
 
@@ -386,6 +387,36 @@ export class EnemyManager {
       if (this.liveCount < MAX_ENEMIES) {
         const needed = MAX_ENEMIES - this.liveCount;
         this._spawnFromEdges(needed);
+      }
+    }
+  }
+
+  // Push enemy out of building footprints — same logic as player wall collision
+  _resolveEnemyBuildings(enemy, buildings) {
+    const ENEMY_RADIUS = 0.5;
+    const p = enemy.mesh.position;
+    for (const b of buildings) {
+      if (p.y > b.h) continue; // enemy on a rooftop — skip walls
+
+      const minX = b.x - b.halfW - ENEMY_RADIUS;
+      const maxX = b.x + b.halfW + ENEMY_RADIUS;
+      const minZ = b.z - b.halfD - ENEMY_RADIUS;
+      const maxZ = b.z + b.halfD + ENEMY_RADIUS;
+
+      if (p.x <= minX || p.x >= maxX || p.z <= minZ || p.z >= maxZ) continue;
+
+      // Overlapping — push out on shortest axis
+      const dLeft  = p.x - minX;
+      const dRight = maxX - p.x;
+      const dFront = p.z - minZ;
+      const dBack  = maxZ - p.z;
+      const minXOv = Math.min(dLeft, dRight);
+      const minZOv = Math.min(dFront, dBack);
+
+      if (minXOv < minZOv) {
+        p.x += dLeft < dRight ? -dLeft : dRight;
+      } else {
+        p.z += dFront < dBack ? -dFront : dBack;
       }
     }
   }

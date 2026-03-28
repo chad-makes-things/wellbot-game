@@ -321,23 +321,22 @@ export class WeaponSystem {
       return;
     }
 
-    // Find nearest building within range — target the nearest edge of its
-    // rooftop so Wellbot is pulled UP and ONTO the roof, not through the wall.
+    // Find nearest building within range — target its rooftop center.
+    // Wall collision is suspended via player.isGrappling so Wellbot
+    // gets pulled straight up and through to land on the roof.
     let bestDSq = GRAPPLE_RANGE * GRAPPLE_RANGE;
     let bestTarget = null;
-
-    const px = player.mesh.position.x;
-    const pz = player.mesh.position.z;
+    let bestBuilding = null;
 
     for (const b of buildings) {
       if (!b.rooftopPos) continue;
       const dSq = distanceSqXZ(player.mesh.position, b.rooftopPos);
       if (dSq < bestDSq) {
         bestDSq = dSq;
-        // Clamp player XZ to the building boundary → nearest roof edge point
-        const edgeX = Math.max(b.x - b.halfW, Math.min(b.x + b.halfW, px));
-        const edgeZ = Math.max(b.z - b.halfD, Math.min(b.z + b.halfD, pz));
-        bestTarget = new THREE.Vector3(edgeX, b.h + 1.5, edgeZ);
+        bestBuilding = b;
+        // Target center of roof, 1.5 units above surface so player
+        // arrives cleanly above the rooftop and settles onto it.
+        bestTarget = new THREE.Vector3(b.x, b.h + 1.5, b.z);
       }
     }
 
