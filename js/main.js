@@ -350,7 +350,7 @@ function gameLoop() {
   if (gameState.isShopOpen) {
     shop.handleInput(justPressed);
     shop.update(delta);
-    hud.update(weaponSystem, enemyManager.enemies);
+    hud.update(weaponSystem, enemyManager.enemies, cameraAzimuth);
     renderer.render(scene, camera);
     return;
   }
@@ -366,16 +366,14 @@ function gameLoop() {
   city.update(player.mesh.position.x, player.mesh.position.z);
   buildings = city.getBuildingData();
 
-  // ─── Vehicle mount/dismount (Space near vehicle) ───
+  // ─── Vehicle mount/dismount (Shift key) ───
   const inVehicle = player.inVehicle;
   if (inVehicle) {
-    // In vehicle: Space dismounts (bike/car) or fires cannon (tank, handled in weapons)
-    if (justPressed['Space'] && !inVehicle.hasWeapon) {
+    // Shift exits any vehicle (including tank)
+    if (justPressed['ShiftLeft'] || justPressed['ShiftRight']) {
       vehicleManager.dismountVehicle(player);
-    } else if (justPressed['Space'] && inVehicle.hasWeapon) {
-      // Tank cannon — let weapon system handle it below
     }
-    // Vehicle movement
+    // Vehicle movement (blocks grapple/bomb/weapon-cycle while in vehicle)
     vehicleManager.update(delta, keyState, cameraAzimuth, buildings, enemyManager.enemies, player);
   } else {
     // Not in vehicle: normal player update
@@ -389,32 +387,20 @@ function gameLoop() {
       hud.flashWeaponSwitch(newName);
     }
 
-    // Jump — Shift key, only when grounded
+    // Jump — Shift key, only when grounded and not near a vehicle
     if ((justPressed['ShiftLeft'] || justPressed['ShiftRight']) && player.isGrounded && !player.isDead) {
-      player.velocity.y = 12;
-      player.isGrounded = false;
+      const nearbyV = vehicleManager.getNearbyVehicle(player.mesh.position);
+      if (nearbyV) {
+        // Mount vehicle instead of jumping
+        vehicleManager.mountVehicle(nearbyV, player);
+      } else {
+        player.velocity.y = 12;
+        player.isGrounded = false;
+      }
     }
 
     resolveBuildingWalls(player, buildings);
     resolveRooftops(player, buildings);
-
-    // Check for nearby vehicle to mount (Space when no enemy in close range)
-    if (justPressed['Space'] && !player.isDead) {
-      const nearby = vehicleManager.getNearbyVehicle(player.mesh.position);
-      if (nearby) {
-        // Only mount if no enemies within 6 units (prevents accidental mount during combat)
-        let enemyClose = false;
-        for (const e of enemyManager.enemies) {
-          if (e.isDead || !e.mesh.visible) continue;
-          const dSq = (e.mesh.position.x - player.mesh.position.x) ** 2 +
-                      (e.mesh.position.z - player.mesh.position.z) ** 2;
-          if (dSq < 36) { enemyClose = true; break; }
-        }
-        if (!enemyClose) {
-          vehicleManager.mountVehicle(nearby, player);
-        }
-      }
-    }
   }
 
   // Check if vehicle was destroyed — eject player
@@ -423,27 +409,14 @@ function gameLoop() {
   }
 
   // Weapons: skip personal weapons while in vehicle (except tank cannon)
+  // Also block grapple (X) and bomb (Z) while in vehicle
   if (!inVehicle) {
-    weaponSystem.update(
-      delta,
-      player,
-      enemyManager.enemies,
-      gameState,
-      keyState,
-      justPressed,
-      buildings
-    );
-  } else if (inVehicle && inVehicle.hasWeapon) {
-    // Tank cannon — fire using weapon system's existing auto-aim
-    weaponSystem.update(
-      delta,
-      player,
-      enemyManager.enemies,
-      gameState,
-      keyState,
-      justPressed,
-      buildings
-    );
+    weaponSystem.update(delta, player, enemyManager.enemies, gameState, keyState, justPressed, buildings);
+  } else if (inVehicle.hasWeapon) {
+    // Tank cannon only — pass modified justPressed blocking X and Z
+    const vehicleJP = { ...justPressed, KeyX: false, KeyZ: false };
+    const vehicleKS = { ...keyState, KeyX: false, KeyZ: false };
+    weaponSystem.update(delta, player, enemyManager.enemies, gameState, vehicleKS, vehicleJP, buildings);
   }
 
   enemyManager.updateDifficulty(player.totalCoinsEarned);
@@ -463,7 +436,7 @@ function gameLoop() {
   camera.position.y += _shakeOffset.y;
   camera.position.z += _shakeOffset.z;
 
-  hud.update(weaponSystem, enemyManager.enemies);
+  hud.update(weaponSystem, enemyManager.enemies, cameraAzimuth);
 
   // Sword swing visual feedback
   if (weaponSystem.swordSwungThisFrame) {

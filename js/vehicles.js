@@ -280,7 +280,7 @@ class Tank extends Vehicle {
       turnRate: 90,
       maxHP: 200,
       hasWeapon: true,
-      rammingDamage: 0,
+      rammingDamage: 50, // tank crushes enemies
       footprintW: 4.0,
       footprintD: 6.0,
     });

@@ -319,8 +319,8 @@ export class WeaponSystem {
 
   // ─── SWORD — instant area damage to all enemies within melee range ───
   _swingSword(player, enemies) {
-    const SWORD_RANGE_SQ = 2.5 * 2.5;
-    const SWORD_DAMAGE   = 35;
+    const SWORD_RANGE_SQ = 4.0 * 4.0; // increased range so player doesn't have to get hit
+    const SWORD_DAMAGE   = 40; // one-shot grunts
     let hit = false;
     for (const e of enemies) {
       if (e.isDead || !e.mesh.visible) continue;

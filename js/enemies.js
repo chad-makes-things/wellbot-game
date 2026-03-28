@@ -21,13 +21,14 @@ const ENEMY_TYPES = {
 };
 
 // Spawn type selection by difficulty stage
+// Earlier variety: sprinters from Stage 1, brutes from Stage 2
 const STAGE_TYPE_WEIGHTS = {
-  1: { grunt: 100 },
-  2: { grunt: 70, sprinter: 20, lobber: 10 },
-  3: { grunt: 50, sprinter: 25, brute: 10, lobber: 15 },
-  4: { grunt: 40, sprinter: 25, brute: 15, lobber: 20 },
-  5: { grunt: 30, sprinter: 25, brute: 20, lobber: 25 },
-  6: { grunt: 25, sprinter: 25, brute: 25, lobber: 25 },
+  1: { grunt: 70, sprinter: 20, lobber: 10 },
+  2: { grunt: 50, sprinter: 25, brute: 10, lobber: 15 },
+  3: { grunt: 40, sprinter: 25, brute: 15, lobber: 20 },
+  4: { grunt: 35, sprinter: 25, brute: 20, lobber: 20 },
+  5: { grunt: 25, sprinter: 25, brute: 25, lobber: 25 },
+  6: { grunt: 20, sprinter: 25, brute: 30, lobber: 25 },
 };
 
 // Shared indicator geometry + material (diamond shape via rotated box, depthTest off)
@@ -252,9 +253,8 @@ class Enemy {
 
     const dSq = distanceSqXZ(this.mesh.position, player.mesh.position);
 
-    // Lobber stays put and attacks from range
+    // Lobber stays put and attacks from range with visible projectile
     if (this.enemyType === 'lobber') {
-      // Face player
       const tx = player.mesh.position.x - this.mesh.position.x;
       const tz = player.mesh.position.z - this.mesh.position.z;
       this.mesh.rotation.y = Math.atan2(tx, tz);
@@ -263,10 +263,9 @@ class Enemy {
         this.attackCooldown -= delta;
         if (this.attackCooldown <= 0) {
           this.attackCooldown = this.attackRate;
-          // Lob a projectile — simplified: direct damage with delay
-          // (Full projectile system deferred to Sprint 4 polish)
-          if (dSq < 20 * 20) {
-            player.takeDamage(this.attackPower);
+          // Fire a visible lobbed projectile
+          if (this.manager && dSq < 22 * 22) {
+            this.manager._fireLobberProjectile(this.mesh.position.clone(), player, this.attackPower);
           }
         }
       }
@@ -462,6 +461,20 @@ export class EnemyManager {
     // Particle pool for enemy defeat puffs (8 particles × 5 enemies)
     this._puffPool = createParticlePool(scene, 40, getPuffGeo(), mkMat(C_PUFF));
 
+    // Lobber projectile pool
+    this._lobberProjectiles = [];
+    const lobGeo = new THREE.SphereGeometry(0.25, 6, 6);
+    const lobMat = new THREE.MeshLambertMaterial({ color: 0x444444, emissive: 0xFF4400, emissiveIntensity: 0.4 });
+    for (let i = 0; i < 8; i++) {
+      const m = new THREE.Mesh(lobGeo, lobMat);
+      m.visible = false;
+      this.scene.add(m);
+      this._lobberProjectiles.push({
+        mesh: m, velocity: new THREE.Vector3(),
+        active: false, damage: 0, age: 0, targetPlayer: null,
+      });
+    }
+
     // Pre-allocate enemy pool
     for (let i = 0; i < MAX_ENEMIES; i++) {
       this.enemies.push(new Enemy(scene, this));
@@ -571,6 +584,21 @@ export class EnemyManager {
     this._dropCoins(enemy.mesh.position.clone(), enemy.coinDrop || 3);
     spawnParticles(this._puffPool, enemy.mesh.position.clone(), 8, 3, 7, 0.5);
     if (this.audio) this.audio.play('enemyDeath');
+
+    // Brutes and lobbers drop health pickups
+    if (enemy.enemyType === 'brute' || enemy.enemyType === 'lobber') {
+      this._dropHealth(enemy.mesh.position.clone());
+    }
+  }
+
+  _dropHealth(position) {
+    const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const mat = new THREE.MeshLambertMaterial({ color: 0x2ECC40, emissive: 0x00AA00, emissiveIntensity: 0.5 });
+    const hp = new THREE.Mesh(geo, mat);
+    hp.position.set(position.x + (Math.random() - 0.5), 0.4, position.z + (Math.random() - 0.5));
+    this.scene.add(hp);
+    this.healthPickups = this.healthPickups || [];
+    this.healthPickups.push({ mesh: hp, phase: Math.random() * Math.PI * 2 });
   }
 
   _dropCoins(position, count) {
@@ -630,6 +658,28 @@ export class EnemyManager {
       }
     }
 
+    // Lobber projectiles
+    this._updateLobberProjectiles(delta, player);
+
+    // Health pickup animation + collection
+    if (this.healthPickups) {
+      const now = Date.now();
+      for (let i = this.healthPickups.length - 1; i >= 0; i--) {
+        const hp = this.healthPickups[i];
+        hp.mesh.position.y = 0.4 + Math.sin(now * 0.004 + hp.phase) * 0.2;
+        hp.mesh.rotation.y += 0.05;
+        // Pickup check
+        const dSq = (hp.mesh.position.x - player.mesh.position.x) ** 2 +
+                    (hp.mesh.position.z - player.mesh.position.z) ** 2;
+        if (dSq < 1.2) {
+          player.health = Math.min(player.maxHealth, player.health + 20);
+          this.scene.remove(hp.mesh);
+          this.healthPickups.splice(i, 1);
+          if (this.audio) this.audio.play('coin'); // reuse ding sound
+        }
+      }
+    }
+
     // Particle puffs
     updateParticlePool(this._puffPool, delta);
 
@@ -641,6 +691,68 @@ export class EnemyManager {
       if (this.liveCount < target) {
         const needed = Math.min(3, target - this.liveCount); // spawn up to 3 at a time
         this._spawnFromEdges(needed, player, buildings);
+      }
+    }
+  }
+
+  _fireLobberProjectile(origin, player, damage) {
+    let proj = null;
+    for (const p of this._lobberProjectiles) {
+      if (!p.active) { proj = p; break; }
+    }
+    if (!proj) return;
+
+    // Compute arc toward player
+    const dx = player.mesh.position.x - origin.x;
+    const dz = player.mesh.position.z - origin.z;
+    const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+    const speed = 6;
+    proj.mesh.position.copy(origin);
+    proj.mesh.position.y += 1.5;
+    proj.velocity.set(
+      (dx / dist) * speed,
+      8, // arc upward
+      (dz / dist) * speed
+    );
+    proj.active = true;
+    proj.damage = damage;
+    proj.age = 0;
+    proj.targetPlayer = player;
+    proj.mesh.visible = true;
+  }
+
+  _updateLobberProjectiles(delta, player) {
+    for (const p of this._lobberProjectiles) {
+      if (!p.active) continue;
+      p.age += delta;
+      p.velocity.y -= 12 * delta; // gravity
+      p.mesh.position.addScaledVector(p.velocity, delta);
+      p.mesh.rotation.x += 3 * delta;
+      p.mesh.rotation.z += 2 * delta;
+
+      // Hit ground or player
+      if (p.mesh.position.y <= 0.3 || p.age > 4) {
+        // Check distance to player for splash
+        const dSq = (p.mesh.position.x - player.mesh.position.x) ** 2 +
+                    (p.mesh.position.z - player.mesh.position.z) ** 2;
+        if (dSq < 2.5 * 2.5) {
+          player.takeDamage(p.damage);
+        }
+        p.active = false;
+        p.mesh.visible = false;
+        // Small particle burst
+        spawnParticles(this._puffPool, p.mesh.position.clone(), 4, 2, 5, 0.3);
+      }
+
+      // Direct player hit
+      const pDSq = (p.mesh.position.x - player.mesh.position.x) ** 2 +
+                   (p.mesh.position.y - player.mesh.position.y) ** 2 +
+                   (p.mesh.position.z - player.mesh.position.z) ** 2;
+      if (pDSq < 1.5) {
+        player.takeDamage(p.damage);
+        p.active = false;
+        p.mesh.visible = false;
+        spawnParticles(this._puffPool, p.mesh.position.clone(), 4, 2, 5, 0.3);
       }
     }
   }

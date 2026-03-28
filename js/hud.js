@@ -48,7 +48,7 @@ export class HUD {
     setTimeout(() => { if (el.parentNode) el.remove(); }, 300);
   }
 
-  update(weaponSystem, enemies) {
+  update(weaponSystem, enemies, cameraAzimuth) {
     const player  = this.player;
     const pct     = player.health / player.maxHealth;
 
@@ -94,10 +94,10 @@ export class HUD {
     }
 
     // ─── Minimap ───
-    this._drawMinimap(enemies);
+    this._drawMinimap(enemies, cameraAzimuth);
   }
 
-  _drawMinimap(enemies) {
+  _drawMinimap(enemies, cameraAzimuth) {
     if (!this.minimapCtx) return;
     const ctx    = this.minimapCtx;
     const size   = this.minimapCanvas.width; // 150
@@ -107,20 +107,35 @@ export class HUD {
     const px     = this.player.mesh.position.x;
     const pz     = this.player.mesh.position.z;
 
+    // Rotation angle — rotate minimap to match camera
+    const angle  = cameraAzimuth !== undefined ? -(cameraAzimuth - Math.PI / 4) : 0;
+    const cosA   = Math.cos(angle);
+    const sinA   = Math.sin(angle);
+
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = 'rgba(0, 20, 40, 0)';
     ctx.fillRect(0, 0, size, size);
 
-    // Enemy dots
+    // Enemy dots (rotated)
     if (enemies) {
       for (const e of enemies) {
         if (e.isDead || !e.mesh.visible) continue;
-        const ex = cx + (e.mesh.position.x - px) * scale;
-        const ez = cy + (e.mesh.position.z - pz) * scale;
+        const dx = (e.mesh.position.x - px) * scale;
+        const dz = (e.mesh.position.z - pz) * scale;
+        // Rotate
+        const rx = dx * cosA - dz * sinA;
+        const rz = dx * sinA + dz * cosA;
+        const ex = cx + rx;
+        const ez = cy + rz;
         if (ex < 0 || ex > size || ez < 0 || ez > size) continue;
-        ctx.fillStyle = '#FF4136';
+
+        // Color by enemy type
+        const c = e.enemyType === 'sprinter' ? '#AADD00' :
+                  e.enemyType === 'brute'    ? '#5B2C6F' :
+                  e.enemyType === 'lobber'   ? '#E67E22' : '#FF4136';
+        ctx.fillStyle = c;
         ctx.beginPath();
-        ctx.arc(ex, ez, 3, 0, Math.PI * 2);
+        ctx.arc(ex, ez, e.enemyType === 'brute' ? 4 : 3, 0, Math.PI * 2);
         ctx.fill();
       }
     }
