@@ -185,12 +185,18 @@ class Enemy {
           this._animateWalk(delta, 1.0);
         }
 
-        if (dSq < ATTACK_RANGE_SQ)  this.state = 'ATTACK';
-        if (dSq > IDLE_RETURN_SQ)   this.state = 'IDLE';
+        // Only enter attack if player is at roughly the same height
+        const heightDiff = Math.abs(player.mesh.position.y - this.mesh.position.y);
+        if (dSq < ATTACK_RANGE_SQ && heightDiff < 3) this.state = 'ATTACK';
+        if (dSq > IDLE_RETURN_SQ)                    this.state = 'IDLE';
         break;
       }
 
       case 'ATTACK': {
+        // Stop attacking if player has moved out of reach vertically (e.g. rooftop)
+        const heightDiff = Math.abs(player.mesh.position.y - this.mesh.position.y);
+        if (heightDiff >= 3) { this.state = 'PURSUE'; break; }
+
         this.attackCooldown -= delta;
         if (this.attackCooldown <= 0) {
           player.takeDamage(this.attackPower);
