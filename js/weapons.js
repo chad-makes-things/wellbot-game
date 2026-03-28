@@ -206,6 +206,8 @@ export class WeaponSystem {
 
     // Camera shake state (passed to main.js via property)
     this.cameraShake = { active: false, timer: 0, intensity: 0 };
+    // Set to true for one frame when sword is swung — main.js reads and clears
+    this.swordSwungThisFrame = false;
   }
 
   // Find nearest living enemy from list
@@ -404,6 +406,9 @@ export class WeaponSystem {
   }
 
   update(delta, player, enemies, gameState, keyState, justPressed, buildings) {
+    // Clear one-frame signals
+    this.swordSwungThisFrame = false;
+
     // ─── Active weapon fire (Space) ───
     this._fireCooldown -= delta;
     if (keyState['Space'] && this._fireCooldown <= 0 && !gameState.isShopOpen) {
@@ -415,6 +420,7 @@ export class WeaponSystem {
           break;
         case 'sword':
           this._swingSword(player, enemies);
+          this.swordSwungThisFrame = true;
           this._fireCooldown = 0.4;
           break;
         case 'rocket':

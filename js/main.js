@@ -318,6 +318,9 @@ function gameLoop() {
   if (justPressed['KeyC'] && !gameState.isShopOpen && !player.isDead) {
     player.currentWeaponIndex =
       (player.currentWeaponIndex + 1) % player.unlockedWeapons.length;
+    // Big centered flash so the switch is unmissable
+    const newName = weaponSystem.currentWeaponName(player);
+    hud.flashWeaponSwitch(newName);
   }
 
   // Jump — Shift key, only when grounded
@@ -350,6 +353,9 @@ function gameLoop() {
   camera.position.z += _shakeOffset.z;
 
   hud.update(weaponSystem, enemyManager.enemies);
+
+  // Sword swing visual feedback
+  if (weaponSystem.swordSwungThisFrame) hud.flashSwordSwing();
 
   // ─── Game over check ───
   if (player.isDead && !gameState.gameOverShown) {

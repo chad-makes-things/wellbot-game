@@ -18,6 +18,33 @@ export class HUD {
 
     this._coinPopTimer = 0;
     this._lastCoins    = 0;
+    this._weaponFlash  = document.getElementById('hud-weapon-flash');
+  }
+
+  // Show big centered weapon name when player switches weapons
+  flashWeaponSwitch(name) {
+    if (!this._weaponFlash) return;
+    this._weaponFlash.textContent = name;
+    this._weaponFlash.classList.remove('hidden');
+    // Remove and re-add to restart CSS animation
+    this._weaponFlash.style.animation = 'none';
+    void this._weaponFlash.offsetWidth; // force reflow
+    this._weaponFlash.style.animation = '';
+    clearTimeout(this._weaponFlashTimer);
+    this._weaponFlashTimer = setTimeout(() => {
+      this._weaponFlash.classList.add('hidden');
+    }, 850);
+  }
+
+  // Show sword slash effect on screen
+  flashSwordSwing() {
+    let el = document.getElementById('hud-sword-flash');
+    if (el) el.remove(); // remove old one if mid-animation
+    el = document.createElement('div');
+    el.id = 'hud-sword-flash';
+    el.textContent = '⚔';
+    document.getElementById('hud').appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 300);
   }
 
   update(weaponSystem, enemies) {
