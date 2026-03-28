@@ -12,6 +12,24 @@ const C_COIN_EMISSIVE  = 0xB8860B;
 const C_PUFF           = 0xE63946;
 const C_INDICATOR      = 0xE63946;
 
+// Enemy type configs
+const ENEMY_TYPES = {
+  grunt:    { hp: 50,  speed: 3.0, attackPower: 10, attackRate: 1.0, coins: 3,  color: C_ENEMY_RED, darkColor: C_ENEMY_DARK_RED, eyeColor: C_ENEMY_EYE },
+  sprinter: { hp: 30,  speed: 6.0, attackPower: 8,  attackRate: 0.8, coins: 4,  color: 0xAADD00, darkColor: 0x336600, eyeColor: 0xFFFFFF },
+  brute:    { hp: 150, speed: 1.5, attackPower: 20, attackRate: 1.5, coins: 10, color: 0x5B2C6F, darkColor: 0x333333, eyeColor: 0xFF4444 },
+  lobber:   { hp: 40,  speed: 0,   attackPower: 12, attackRate: 3.0, coins: 8,  color: 0xE67E22, darkColor: 0xA04000, eyeColor: 0xFFFF00 },
+};
+
+// Spawn type selection by difficulty stage
+const STAGE_TYPE_WEIGHTS = {
+  1: { grunt: 100 },
+  2: { grunt: 70, sprinter: 20, lobber: 10 },
+  3: { grunt: 50, sprinter: 25, brute: 10, lobber: 15 },
+  4: { grunt: 40, sprinter: 25, brute: 15, lobber: 20 },
+  5: { grunt: 30, sprinter: 25, brute: 20, lobber: 25 },
+  6: { grunt: 25, sprinter: 25, brute: 25, lobber: 25 },
+};
+
 // Shared indicator geometry + material (diamond shape via rotated box, depthTest off)
 let _indicatorGeo = null;
 let _indicatorMat = null;
@@ -67,6 +85,9 @@ class Enemy {
     this.attackCooldown = 0;
     this.state       = 'IDLE';
     this.isDead      = true; // pool starts as available — activate() sets false
+    this.enemyType   = 'grunt';
+    this.coinDrop    = 3;
+    this._fleeTimer  = 0;
 
     // Walk animation
     this.walkCycle = Math.random() * Math.PI * 2;
@@ -149,24 +170,52 @@ class Enemy {
     return group;
   }
 
-  activate(position, hpMultiplier = 1.0, speedMultiplier = 1.0) {
+  activate(position, hpMultiplier = 1.0, speedMultiplier = 1.0, type = 'grunt') {
+    this.enemyType = type;
+    const cfg = ENEMY_TYPES[type] || ENEMY_TYPES.grunt;
+
     this.isDead  = false;
-    this.health = Math.round(this.maxHealth * hpMultiplier);
-    this.speed  = 3.0 * speedMultiplier;
-    this.state  = 'IDLE';
+    this.maxHealth = cfg.hp;
+    this.health = Math.round(cfg.hp * hpMultiplier);
+    this.speed  = cfg.speed * (type === 'brute' || type === 'lobber' ? 1.0 : speedMultiplier);
+    this.attackPower = cfg.attackPower;
+    this.attackRate = cfg.attackRate;
+    this.coinDrop = cfg.coins;
+    this.state  = type === 'lobber' ? 'IDLE' : 'IDLE';
     this.attackCooldown = 0;
     this.walkCycle = Math.random() * Math.PI * 2;
+    this._fleeTimer = 0;
+
     this.mesh.position.copy(position);
     this.mesh.position.y = 0;
     this.baseY = 0;
     this.mesh.visible = true;
-    this.mesh.scale.setScalar(1);
     this._flashTimer = 0;
     this._indicator.visible = true;
-    // Restore colors
-    for (const { mesh, color } of this._originalColors) {
-      mesh.material.color.setHex(color);
-    }
+
+    // Resize/recolor based on type
+    const scale = type === 'sprinter' ? 0.8 : type === 'brute' ? 1.4 : type === 'lobber' ? 0.9 : 1.0;
+    this.mesh.scale.setScalar(scale);
+
+    // Recolor
+    this._body.material.color.setHex(cfg.color);
+    this._leftLeg.material.color.setHex(cfg.darkColor);
+    this._rightLeg.material.color.setHex(cfg.darkColor);
+    this._leftArm.material.color.setHex(cfg.darkColor);
+    this._rightArm.material.color.setHex(cfg.darkColor);
+    this._eye.material.color.setHex(cfg.eyeColor);
+    this._eye.material.emissive.setHex(cfg.eyeColor);
+
+    // Update original colors for flash restore
+    this._originalColors = [];
+    this.mesh.traverse(obj => {
+      if (obj.isMesh && obj !== this._eye) {
+        this._originalColors.push({ mesh: obj, color: obj.material.color.getHex() });
+      }
+    });
+
+    // Indicator color matches enemy
+    this._indicator.material.color.setHex(cfg.color);
   }
 
   update(delta, player) {
@@ -182,7 +231,46 @@ class Enemy {
       }
     }
 
+    // Sprinter flee behavior
+    if (this._fleeTimer > 0) {
+      this._fleeTimer -= delta;
+      const fromPlayer = new THREE.Vector3(
+        this.mesh.position.x - player.mesh.position.x,
+        0,
+        this.mesh.position.z - player.mesh.position.z
+      );
+      if (fromPlayer.length() > 0.01) {
+        fromPlayer.normalize();
+        this.mesh.position.x += fromPlayer.x * this.speed * 1.5 * delta;
+        this.mesh.position.z += fromPlayer.z * this.speed * 1.5 * delta;
+        this.mesh.rotation.y = Math.atan2(fromPlayer.x, fromPlayer.z);
+        this._animateWalk(delta, 1.5);
+      }
+      return; // skip normal AI while fleeing
+    }
+
     const dSq = distanceSqXZ(this.mesh.position, player.mesh.position);
+
+    // Lobber stays put and attacks from range
+    if (this.enemyType === 'lobber') {
+      // Face player
+      const tx = player.mesh.position.x - this.mesh.position.x;
+      const tz = player.mesh.position.z - this.mesh.position.z;
+      this.mesh.rotation.y = Math.atan2(tx, tz);
+
+      if (dSq < 25 * 25) {
+        this.attackCooldown -= delta;
+        if (this.attackCooldown <= 0) {
+          this.attackCooldown = this.attackRate;
+          // Lob a projectile — simplified: direct damage with delay
+          // (Full projectile system deferred to Sprint 4 polish)
+          if (dSq < 20 * 20) {
+            player.takeDamage(this.attackPower);
+          }
+        }
+      }
+      return;
+    }
 
     switch (this.state) {
       case 'IDLE': {
@@ -282,6 +370,11 @@ class Enemy {
       if (obj.isMesh) obj.material.color.setHex(0xffffff);
     });
 
+    // Sprinter flees after taking damage
+    if (this.enemyType === 'sprinter' && this.health > 0) {
+      this._fleeTimer = 1.5;
+    }
+
     if (this.health <= 0) {
       this.defeat();
     }
@@ -334,10 +427,40 @@ export class EnemyManager {
     return null;
   }
 
+  _pickEnemyType() {
+    const weights = STAGE_TYPE_WEIGHTS[this._difficultyStage] || STAGE_TYPE_WEIGHTS[1];
+    // Count brutes — cap at 3
+    if (weights.brute) {
+      let bruteCount = 0;
+      for (const e of this.enemies) {
+        if (!e.isDead && e.mesh.visible && e.enemyType === 'brute') bruteCount++;
+      }
+      if (bruteCount >= 3) {
+        // Remove brute from consideration, redistribute to grunt
+        const adjusted = { ...weights };
+        adjusted.grunt = (adjusted.grunt || 0) + (adjusted.brute || 0);
+        delete adjusted.brute;
+        return this._rollType(adjusted);
+      }
+    }
+    return this._rollType(weights);
+  }
+
+  _rollType(weights) {
+    const total = Object.values(weights).reduce((a, b) => a + b, 0);
+    let roll = Math.random() * total;
+    for (const [type, weight] of Object.entries(weights)) {
+      roll -= weight;
+      if (roll <= 0) return type;
+    }
+    return 'grunt';
+  }
+
   spawnAt(position) {
     const enemy = this._acquireEnemy();
     if (!enemy) return null;
-    enemy.activate(position.clone(), this._hpMultiplier, this._speedMultiplier);
+    const type = this._pickEnemyType();
+    enemy.activate(position.clone(), this._hpMultiplier, this._speedMultiplier, type);
     return enemy;
   }
 
@@ -396,13 +519,13 @@ export class EnemyManager {
 
   onEnemyDefeated(enemy) {
     this._defeatedCount++;
-    this._dropCoins(enemy.mesh.position.clone());
+    this._dropCoins(enemy.mesh.position.clone(), enemy.coinDrop || 3);
     // Spawn puff particles
     spawnParticles(this._puffPool, enemy.mesh.position.clone(), 8, 3, 7, 0.5);
   }
 
-  _dropCoins(position) {
-    const count = 3;
+  _dropCoins(position, count) {
+    count = count || 3;
     for (let i = 0; i < count; i++) {
       const coinMesh = new THREE.Mesh(getCoinGeo(), this._coinMat.clone());
       const baseY = 0.4;

@@ -20,6 +20,17 @@ const BOMB_TRAVEL_SPEED = 8;
 const BOMB_THROW_DIST   = 5;
 const BOMB_COOLDOWN     = 1.5;
 
+const ROCKET_SPEED       = 12;
+const ROCKET_DAMAGE      = 80;
+const ROCKET_SPLASH_RAD  = 6;
+const ROCKET_COOLDOWN    = 2.5;
+const ROCKET_MAX_RANGE   = 40;
+
+const LASER_DPS          = 60;    // damage per second
+const LASER_TICK         = 0.1;   // seconds between ticks
+const LASER_TICK_DMG     = 6;     // LASER_DPS * LASER_TICK
+const LASER_RANGE        = 25;
+
 const GRAPPLE_RANGE     = 22;
 const GRAPPLE_SPEED     = 18;
 const GRAPPLE_PULL_SPEED = 12;
@@ -200,6 +211,32 @@ export class WeaponSystem {
       this._explosionParticles.push(new ExplosionParticle(scene, 0.15, 0xFFFFFF, 0xFFFFFF));
     }
 
+    // Rocket pool (4 max in flight)
+    this._rocketPool = [];
+    for (let i = 0; i < 4; i++) {
+      const rGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 8);
+      const rMat = mkMat(0xFF6B35, 0xFF4400, 0.6);
+      const rMesh = new THREE.Mesh(rGeo, rMat);
+      rMesh.rotation.x = Math.PI / 2; // orient forward
+      rMesh.visible = false;
+      scene.add(rMesh);
+      this._rocketPool.push({
+        mesh: rMesh, velocity: new THREE.Vector3(),
+        active: false, distanceTraveled: 0
+      });
+    }
+    this._rocketCooldown = 0;
+
+    // Laser beam mesh
+    const laserGeo = new THREE.CylinderGeometry(0.06, 0.06, 1, 6);
+    this._laserBeam = new THREE.Mesh(laserGeo,
+      new THREE.MeshBasicMaterial({ color: 0x00FFFF, transparent: true, opacity: 0.85 })
+    );
+    this._laserBeam.visible = false;
+    scene.add(this._laserBeam);
+    this._laserTickTimer = 0;
+    this._laserActive = false;
+
     // Grappling hook
     this._hook = new GrapplingHook(scene);
     this._hookCooldown = 0;
@@ -305,6 +342,172 @@ export class WeaponSystem {
       this.cameraShake.active = true;
       this.cameraShake.timer = 0.1;
       this.cameraShake.intensity = 0.1;
+    }
+  }
+
+  // ─── ROCKET ───
+  _fireRocket(player, enemies) {
+    // Acquire from pool
+    let rocket = null;
+    for (const r of this._rocketPool) {
+      if (!r.active) { rocket = r; break; }
+    }
+    if (!rocket) return;
+
+    const nearest = this._findNearest(player.mesh.position, enemies);
+    let dir;
+    if (nearest) {
+      dir = new THREE.Vector3(
+        nearest.mesh.position.x - player.mesh.position.x,
+        0,
+        nearest.mesh.position.z - player.mesh.position.z
+      ).normalize();
+      player.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+    } else {
+      const a = player.mesh.rotation.y;
+      dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
+    }
+
+    const spawnPos = player.mesh.position.clone().addScaledVector(dir, 1.2);
+    spawnPos.y = player.mesh.position.y + 1.0;
+    rocket.mesh.position.copy(spawnPos);
+    rocket.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+    rocket.velocity.copy(dir).multiplyScalar(ROCKET_SPEED);
+    rocket.distanceTraveled = 0;
+    rocket.active = true;
+    rocket.mesh.visible = true;
+  }
+
+  _explodeRocket(position, enemies, player) {
+    // Splash damage
+    const rSq = ROCKET_SPLASH_RAD * ROCKET_SPLASH_RAD;
+    for (const e of enemies) {
+      if (e.isDead || !e.mesh.visible) continue;
+      const dSq = distanceSqXZ(position, e.mesh.position);
+      if (dSq < rSq) {
+        const dist = Math.sqrt(dSq);
+        const dmg = Math.round(ROCKET_DAMAGE * (1 - dist / ROCKET_SPLASH_RAD));
+        e.takeDamage(Math.max(15, dmg));
+      }
+    }
+    // Self-damage
+    const pDSq = distanceSqXZ(position, player.mesh.position);
+    if (pDSq < rSq) {
+      const dist = Math.sqrt(pDSq);
+      const dmg = Math.round(ROCKET_DAMAGE * 0.5 * (1 - dist / ROCKET_SPLASH_RAD));
+      if (dmg > 0) player.takeDamage(dmg);
+    }
+    // Explosion particles (reuse bomb particles)
+    for (const p of this._explosionParticles) {
+      if (!p.active) {
+        const speed = 6 + Math.random() * 10;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.random() * Math.PI * 0.6;
+        const vel = new THREE.Vector3(
+          Math.sin(phi) * Math.cos(theta) * speed,
+          Math.abs(Math.cos(phi)) * speed,
+          Math.sin(phi) * Math.sin(theta) * speed
+        );
+        p.activate(position.clone().add(new THREE.Vector3(
+          (Math.random() - 0.5) * 2, Math.random() * 0.5, (Math.random() - 0.5) * 2
+        )), vel, 0.5 + Math.random() * 0.4);
+      }
+    }
+    // Camera shake (stronger than bomb)
+    this.cameraShake.active = true;
+    this.cameraShake.timer = 0.4;
+    this.cameraShake.intensity = 0.35;
+  }
+
+  // ─── LASER ───
+  _updateLaser(delta, player, enemies, buildings, keyState) {
+    const weapon = player.unlockedWeapons[player.currentWeaponIndex] || 'pistol';
+    const shouldFire = weapon === 'laser' && keyState['Space'];
+
+    if (!shouldFire) {
+      this._laserBeam.visible = false;
+      this._laserActive = false;
+      this._laserTickTimer = 0;
+      return;
+    }
+
+    this._laserActive = true;
+    const nearest = this._findNearest(player.mesh.position, enemies);
+
+    // Start position (chest)
+    const start = player.mesh.position.clone();
+    start.y += 1.0;
+
+    let end;
+    let hitEnemy = nearest;
+
+    if (nearest) {
+      const toTarget = nearest.mesh.position.clone().sub(player.mesh.position);
+      toTarget.y = 0;
+      const dist = toTarget.length();
+      if (dist > LASER_RANGE) hitEnemy = null;
+      if (hitEnemy) {
+        end = hitEnemy.mesh.position.clone();
+        end.y += 0.7; // aim at body center
+        player.mesh.rotation.y = Math.atan2(toTarget.x, toTarget.z);
+      }
+    }
+
+    if (!end) {
+      // Fire in facing direction
+      const a = player.mesh.rotation.y;
+      end = start.clone().add(new THREE.Vector3(
+        Math.sin(a) * LASER_RANGE, 0, Math.cos(a) * LASER_RANGE
+      ));
+      hitEnemy = null;
+    }
+
+    // Check building occlusion — shorten beam if a building is in the way
+    if (buildings) {
+      const dir = end.clone().sub(start);
+      const totalDist = dir.length();
+      dir.normalize();
+      // Step along beam in 1-unit increments
+      for (let t = 1; t < totalDist; t += 1.0) {
+        const checkX = start.x + dir.x * t;
+        const checkZ = start.z + dir.z * t;
+        const checkY = start.y + dir.y * t;
+        let blocked = false;
+        for (const b of buildings) {
+          if (checkY > b.h) continue;
+          if (checkX > b.x - b.halfW && checkX < b.x + b.halfW &&
+              checkZ > b.z - b.halfD && checkZ < b.z + b.halfD) {
+            end.set(checkX, checkY, checkZ);
+            hitEnemy = null;
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) break;
+      }
+    }
+
+    // Position and scale beam
+    const mid = start.clone().add(end).multiplyScalar(0.5);
+    const beamLen = start.distanceTo(end);
+    this._laserBeam.position.copy(mid);
+    this._laserBeam.scale.set(1, beamLen, 1);
+    this._laserBeam.lookAt(end);
+    this._laserBeam.rotateX(Math.PI / 2);
+
+    // Pulse opacity
+    this._laserBeam.material.opacity = 0.7 + 0.3 * Math.sin(Date.now() * 0.004 * Math.PI);
+    this._laserBeam.visible = true;
+
+    // Damage ticks
+    if (hitEnemy) {
+      this._laserTickTimer += delta;
+      while (this._laserTickTimer >= LASER_TICK) {
+        this._laserTickTimer -= LASER_TICK;
+        hitEnemy.takeDamage(LASER_TICK_DMG);
+      }
+    } else {
+      this._laserTickTimer = 0;
     }
   }
 
@@ -424,8 +627,12 @@ export class WeaponSystem {
           this._fireCooldown = 0.4;
           break;
         case 'rocket':
+          this._fireRocket(player, enemies);
+          this._fireCooldown = ROCKET_COOLDOWN;
+          break;
         case 'laser':
-          // Beta — fall through to pistol for now
+          // Laser is continuous — handled separately in _updateLaser
+          break;
         default:
           this._firePistol(player, enemies);
           this._fireCooldown = PISTOL_FIRE_RATE;
@@ -474,6 +681,47 @@ export class WeaponSystem {
       }
       if (hit) continue;
     }
+
+    // ─── Rockets ───
+    for (const rocket of this._rocketPool) {
+      if (!rocket.active) continue;
+      rocket.mesh.position.addScaledVector(rocket.velocity, delta);
+      rocket.distanceTraveled += ROCKET_SPEED * delta;
+
+      if (rocket.distanceTraveled > ROCKET_MAX_RANGE) {
+        rocket.active = false; rocket.mesh.visible = false; continue;
+      }
+
+      // Building hit
+      let detonated = false;
+      if (buildings) {
+        const rp = rocket.mesh.position;
+        for (const b of buildings) {
+          if (rp.y > b.h) continue;
+          if (rp.x > b.x - b.halfW && rp.x < b.x + b.halfW &&
+              rp.z > b.z - b.halfD && rp.z < b.z + b.halfD) {
+            this._explodeRocket(rp.clone(), enemies, player);
+            rocket.active = false; rocket.mesh.visible = false;
+            detonated = true; break;
+          }
+        }
+      }
+      if (detonated) continue;
+
+      // Enemy hit
+      for (const e of enemies) {
+        if (e.isDead || !e.mesh.visible) continue;
+        const dSq = (rocket.mesh.position.x - e.mesh.position.x) ** 2 +
+                    (rocket.mesh.position.z - e.mesh.position.z) ** 2;
+        if (dSq < 1.0) {
+          this._explodeRocket(rocket.mesh.position.clone(), enemies, player);
+          rocket.active = false; rocket.mesh.visible = false; break;
+        }
+      }
+    }
+
+    // ─── Laser ───
+    this._updateLaser(delta, player, enemies, buildings, keyState);
 
     // ─── Bomb ───
     this._bombCooldown -= delta;
