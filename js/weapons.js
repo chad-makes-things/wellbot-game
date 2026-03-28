@@ -379,6 +379,7 @@ export class WeaponSystem {
   }
 
   _explodeRocket(position, enemies, player) {
+    if (this.audio) this.audio.play('explosion');
     // Splash damage
     const rSq = ROCKET_SPLASH_RAD * ROCKET_SPLASH_RAD;
     for (const e of enemies) {
@@ -530,6 +531,7 @@ export class WeaponSystem {
 
   _explodeBomb(position, enemies) {
     this._bomb.release();
+    if (this.audio) this.audio.play('explosion');
     // Area damage
     const rSq = BOMB_RADIUS * BOMB_RADIUS;
     for (const e of enemies) {
@@ -620,6 +622,7 @@ export class WeaponSystem {
         case 'shotgun':
           this._fireShotgun(player, enemies);
           this._fireCooldown = 0.45;
+          if (this.audio) this.audio.play('shotgun');
           break;
         case 'sword':
           this._swingSword(player, enemies);
@@ -629,6 +632,7 @@ export class WeaponSystem {
         case 'rocket':
           this._fireRocket(player, enemies);
           this._fireCooldown = ROCKET_COOLDOWN;
+          if (this.audio) this.audio.play('rocket');
           break;
         case 'laser':
           // Laser is continuous — handled separately in _updateLaser
@@ -636,6 +640,7 @@ export class WeaponSystem {
         default:
           this._firePistol(player, enemies);
           this._fireCooldown = PISTOL_FIRE_RATE;
+          if (this.audio) this.audio.play('pistol');
       }
     }
 
@@ -798,6 +803,7 @@ export class WeaponSystem {
     if (justPressed['KeyX'] && this._hookCooldown <= 0 && !gameState.isShopOpen) {
       this._fireGrapple(player, buildings || []);
       this._hookCooldown = 0.5;
+      if (this.audio) this.audio.play('grapple');
     }
 
     const hook = this._hook;

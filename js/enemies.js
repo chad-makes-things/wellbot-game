@@ -88,6 +88,7 @@ class Enemy {
     this.enemyType   = 'grunt';
     this.coinDrop    = 3;
     this._fleeTimer  = 0;
+    this._buildings  = null; // set each frame by manager
 
     // Walk animation
     this.walkCycle = Math.random() * Math.PI * 2;
@@ -298,9 +299,46 @@ class Enemy {
         const dist = toPlayer.length();
         if (dist > 0.01) {
           toPlayer.divideScalar(dist);
-          this.mesh.position.x += toPlayer.x * this.speed * delta;
-          this.mesh.position.z += toPlayer.z * this.speed * delta;
-          this.mesh.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
+
+          // Steering-based obstacle avoidance
+          let moveDir = toPlayer.clone();
+          if (this._buildings) {
+            const feelerDist = 3.0;
+            const angle = Math.atan2(toPlayer.x, toPlayer.z);
+            const fwdBlocked = this._isPointInBuilding(
+              this.mesh.position.x + Math.sin(angle) * feelerDist,
+              this.mesh.position.z + Math.cos(angle) * feelerDist
+            );
+            if (fwdBlocked) {
+              const leftAngle = angle + 0.52; // 30 degrees
+              const rightAngle = angle - 0.52;
+              const leftBlocked = this._isPointInBuilding(
+                this.mesh.position.x + Math.sin(leftAngle) * feelerDist,
+                this.mesh.position.z + Math.cos(leftAngle) * feelerDist
+              );
+              const rightBlocked = this._isPointInBuilding(
+                this.mesh.position.x + Math.sin(rightAngle) * feelerDist,
+                this.mesh.position.z + Math.cos(rightAngle) * feelerDist
+              );
+              if (!leftBlocked && rightBlocked) {
+                moveDir.set(Math.sin(leftAngle), 0, Math.cos(leftAngle));
+              } else if (!rightBlocked && leftBlocked) {
+                moveDir.set(Math.sin(rightAngle), 0, Math.cos(rightAngle));
+              } else if (!leftBlocked && !rightBlocked) {
+                // Both clear, pick one randomly based on position
+                const pick = (Math.floor(this.mesh.position.x * 7) & 1) === 0;
+                const a = pick ? leftAngle : rightAngle;
+                moveDir.set(Math.sin(a), 0, Math.cos(a));
+              } else {
+                // Both blocked, go perpendicular
+                moveDir.set(Math.sin(angle + 1.57), 0, Math.cos(angle + 1.57));
+              }
+            }
+          }
+
+          this.mesh.position.x += moveDir.x * this.speed * delta;
+          this.mesh.position.z += moveDir.z * this.speed * delta;
+          this.mesh.rotation.y = Math.atan2(moveDir.x, moveDir.z);
           this._animateWalk(delta, 1.0);
         }
 
@@ -349,6 +387,17 @@ class Enemy {
       this.mesh.position.z
     );
     this._indicator.rotation.y += delta * 1.5; // slow spin
+  }
+
+  _isPointInBuilding(px, pz) {
+    if (!this._buildings) return false;
+    for (const b of this._buildings) {
+      if (px > b.x - b.halfW - 0.6 && px < b.x + b.halfW + 0.6 &&
+          pz > b.z - b.halfD - 0.6 && pz < b.z + b.halfD + 0.6) {
+        return true;
+      }
+    }
+    return false;
   }
 
   _animateWalk(delta, speedFactor) {
@@ -520,8 +569,8 @@ export class EnemyManager {
   onEnemyDefeated(enemy) {
     this._defeatedCount++;
     this._dropCoins(enemy.mesh.position.clone(), enemy.coinDrop || 3);
-    // Spawn puff particles
     spawnParticles(this._puffPool, enemy.mesh.position.clone(), 8, 3, 7, 0.5);
+    if (this.audio) this.audio.play('enemyDeath');
   }
 
   _dropCoins(position, count) {
@@ -547,6 +596,7 @@ export class EnemyManager {
     // Update enemies
     for (const enemy of this.enemies) {
       if (!enemy.isDead && enemy.mesh.visible) {
+        enemy._buildings = buildings; // for pathfinding feelers
         enemy.update(delta, player);
         if (buildings) this._resolveEnemyBuildings(enemy, buildings);
 
@@ -576,6 +626,7 @@ export class EnemyManager {
         player.totalCoinsEarned++;
         this.scene.remove(coin.mesh);
         this.coins.splice(i, 1);
+        if (this.audio) this.audio.play('coin');
       }
     }
 

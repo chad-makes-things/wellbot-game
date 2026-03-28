@@ -255,6 +255,7 @@ export class Player {
     }
 
     this.health = Math.max(0, this.health - amount);
+    if (this.audio) this.audio.play('damage');
 
     // Flash red
     this._flashTimer = 0.15;

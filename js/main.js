@@ -9,6 +9,7 @@ import { City }         from './city.js';
 import { HUD }          from './hud.js';
 import { Shop }         from './shop.js';
 import { VehicleManager } from './vehicles.js';
+import { AudioManager }   from './audio.js';
 
 // ─────────────────────────────────────────────
 // Renderer
@@ -74,7 +75,7 @@ const keyState = {
   ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
   Space: false, KeyZ: false, KeyX: false, KeyC: false, Enter: false,
   Escape: false, ShiftLeft: false, ShiftRight: false,
-  MetaLeft: false, MetaRight: false,
+  MetaLeft: false, MetaRight: false, KeyM: false,
 };
 const prevKeyState = {};
 const justPressed  = {};
@@ -202,7 +203,18 @@ const weaponSystem = new WeaponSystem(scene);
 const hud          = new HUD(player, enemyManager);
 const shop         = new Shop(player);
 const vehicleManager = new VehicleManager(scene);
-shop.vehicleManager = vehicleManager; // so shop can spawn vehicles
+const audio        = new AudioManager();
+shop.vehicleManager = vehicleManager;
+shop.audio = audio;
+weaponSystem.audio = audio;
+enemyManager.audio = audio;
+player.audio = audio;
+
+// Init audio on first interaction
+window.addEventListener('keydown', () => {
+  audio.init();
+  audio.startMusic();
+}, { once: true });
 
 // Load initial chunks around spawn and get building data
 city.update(0, 0);
@@ -314,6 +326,9 @@ function gameLoop() {
 
   // Input — always update
   updateInput();
+
+  // Mute toggle (M key)
+  if (justPressed['KeyM']) audio.toggleMute();
 
   // Shop toggle (Enter key)
   if (justPressed['Enter']) {
@@ -451,7 +466,10 @@ function gameLoop() {
   hud.update(weaponSystem, enemyManager.enemies);
 
   // Sword swing visual feedback
-  if (weaponSystem.swordSwungThisFrame) hud.flashSwordSwing();
+  if (weaponSystem.swordSwungThisFrame) {
+    hud.flashSwordSwing();
+    audio.play('sword');
+  }
 
   // ─── Game over check ───
   if (player.isDead && !gameState.gameOverShown) {

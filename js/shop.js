@@ -114,6 +114,7 @@ export class Shop {
     this._overlay.classList.remove('hidden');
     this._refreshList();
     this._updateBalance();
+    if (this.audio) this.audio.play('shopOpen');
   }
 
   close() {
@@ -199,12 +200,14 @@ export class Shop {
         ? `${item.name} is ready! Walk to it and press Space.`
         : `${item.name} unlocked! Press C to equip.`;
       this._showFeedback(msg, '#2ECC40');
+      if (this.audio) this.audio.play('purchase');
 
       // Auto-close after 600ms
       setTimeout(() => this.close(), 700);
     } else {
       const needed = item.price - this.player.coins;
       this._showFeedback(`Need ${needed} more coins!`, '#FF4136');
+      if (this.audio) this.audio.play('fail');
 
       // Flash row red
       const rows = this._list.querySelectorAll('.shop-row');
