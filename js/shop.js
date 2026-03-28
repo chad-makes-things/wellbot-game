@@ -166,6 +166,11 @@ export class Shop {
       this.player.coins -= item.price;
       this.ownedItems.add(item.id);
 
+      // Add weapon to player's unlocked list so C key can cycle to it
+      if (item.category === 'Weapon' && !this.player.unlockedWeapons.includes(item.id)) {
+        this.player.unlockedWeapons.push(item.id);
+      }
+
       // Flash green
       const rows = this._list.querySelectorAll('.shop-row');
       const row  = rows[this.selectedIndex];

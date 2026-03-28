@@ -255,6 +255,57 @@ export class WeaponSystem {
     bullet.activate(spawnPos, toEnemy.clone().multiplyScalar(BULLET_SPEED), PISTOL_DAMAGE);
   }
 
+  // ─── SHOTGUN — 3-bullet spread, auto-aimed at nearest enemy ───
+  _fireShotgun(player, enemies) {
+    const nearest = this._findNearest(player.mesh.position, enemies);
+    const SPREAD = 0.22; // radians between each pellet
+    // Use nearest enemy direction as center, or forward if no target
+    let centerAngle = player.mesh.rotation.y;
+    if (nearest) {
+      const tx = nearest.mesh.position.x - player.mesh.position.x;
+      const tz = nearest.mesh.position.z - player.mesh.position.z;
+      centerAngle = Math.atan2(tx, tz);
+      player.mesh.rotation.y = centerAngle;
+    }
+    for (let i = -1; i <= 1; i++) {
+      const angle = centerAngle + i * SPREAD;
+      const dir = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+      const bullet = this._acquireBullet();
+      if (!bullet) continue;
+      const spawnPos = player.mesh.position.clone().addScaledVector(dir, 0.9);
+      spawnPos.y = player.mesh.position.y + 1.0;
+      bullet.activate(spawnPos, dir.clone().multiplyScalar(BULLET_SPEED), 15);
+    }
+  }
+
+  // ─── SWORD — instant area damage to all enemies within melee range ───
+  _swingSword(player, enemies) {
+    const SWORD_RANGE_SQ = 2.5 * 2.5;
+    const SWORD_DAMAGE   = 35;
+    let hit = false;
+    for (const e of enemies) {
+      if (e.isDead || !e.mesh.visible) continue;
+      const dSq = distanceSqXZ(player.mesh.position, e.mesh.position);
+      if (dSq < SWORD_RANGE_SQ) {
+        e.takeDamage(SWORD_DAMAGE);
+        hit = true;
+      }
+    }
+    // Face nearest enemy even if out of range
+    const nearest = this._findNearest(player.mesh.position, enemies);
+    if (nearest) {
+      const tx = nearest.mesh.position.x - player.mesh.position.x;
+      const tz = nearest.mesh.position.z - player.mesh.position.z;
+      player.mesh.rotation.y = Math.atan2(tx, tz);
+    }
+    // Small camera shake on a hit
+    if (hit) {
+      this.cameraShake.active = true;
+      this.cameraShake.timer = 0.1;
+      this.cameraShake.intensity = 0.1;
+    }
+  }
+
   // ─── BOMB THROW ───
   _throwBomb(player) {
     if (this._bomb.active) return;
@@ -353,11 +404,26 @@ export class WeaponSystem {
   }
 
   update(delta, player, enemies, gameState, keyState, justPressed, buildings) {
-    // ─── Pistol ───
+    // ─── Active weapon fire (Space) ───
     this._fireCooldown -= delta;
     if (keyState['Space'] && this._fireCooldown <= 0 && !gameState.isShopOpen) {
-      this._firePistol(player, enemies);
-      this._fireCooldown = PISTOL_FIRE_RATE;
+      const weapon = player.unlockedWeapons[player.currentWeaponIndex] || 'pistol';
+      switch (weapon) {
+        case 'shotgun':
+          this._fireShotgun(player, enemies);
+          this._fireCooldown = 0.45;
+          break;
+        case 'sword':
+          this._swingSword(player, enemies);
+          this._fireCooldown = 0.4;
+          break;
+        case 'rocket':
+        case 'laser':
+          // Beta — fall through to pistol for now
+        default:
+          this._firePistol(player, enemies);
+          this._fireCooldown = PISTOL_FIRE_RATE;
+      }
     }
 
     // Update bullets
@@ -527,8 +593,13 @@ export class WeaponSystem {
     hook.rope.visible = true;
   }
 
-  // Expose weapons list for HUD/Shop
-  get currentWeaponName() {
-    return 'PISTOL'; // Alpha: only pistol is active
+  // Expose current weapon name for HUD
+  currentWeaponName(player) {
+    const id = player.unlockedWeapons[player.currentWeaponIndex] || 'pistol';
+    const names = {
+      pistol: 'PISTOL', shotgun: 'BOOM BLASTER',
+      sword: 'SUPER SWORD', rocket: 'THE ROCKET', laser: 'LASER BEAM',
+    };
+    return names[id] || id.toUpperCase();
   }
 }

@@ -180,13 +180,15 @@ const PLAYER_XZ_RADIUS = 0.55; // half-width used for wall collision
 const PLAYER_HALF_H    = 1.1;  // feet-to-center height
 
 // Push player out of building footprints (XZ walls).
-// Skipped during grapple so the hook can pull Wellbot onto the roof.
+// Skipped during grapple and when player is on or above the rooftop surface.
 function resolveBuildingWalls(player, buildings) {
   if (player.isGrappling) return;
   const p = player.mesh.position;
   for (const b of buildings) {
-    // Player must be below rooftop to collide with walls
-    if (p.y > b.h + PLAYER_HALF_H) continue;
+    // Skip wall collision if player is standing on or above this building's roof.
+    // Without this, a player at building-center XZ (after grappling) gets
+    // pushed out every frame because they're "inside" the footprint.
+    if (p.y >= b.h + PLAYER_HALF_H - 0.15) continue;
 
     const minX = b.x - b.halfW - PLAYER_XZ_RADIUS;
     const maxX = b.x + b.halfW + PLAYER_XZ_RADIUS;
@@ -291,6 +293,9 @@ function gameLoop() {
     }
   }
 
+  // Sync shop state — catches auto-close from purchase timeout
+  gameState.isShopOpen = shop.isOpen;
+
   // When shop is open — only update shop, not gameplay
   if (gameState.isShopOpen) {
     shop.handleInput(justPressed);
@@ -308,6 +313,12 @@ function gameLoop() {
 
   // ─── Game systems update ───
   player.update(delta, keyState);
+
+  // Weapon cycle — C key
+  if (justPressed['KeyC'] && !gameState.isShopOpen && !player.isDead) {
+    player.currentWeaponIndex =
+      (player.currentWeaponIndex + 1) % player.unlockedWeapons.length;
+  }
 
   // Jump — Shift key, only when grounded
   if ((justPressed['ShiftLeft'] || justPressed['ShiftRight']) && player.isGrounded && !player.isDead) {

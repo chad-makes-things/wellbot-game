@@ -57,7 +57,7 @@ export class HUD {
     this.scoreDisplay.textContent = defeated > 999 ? '999+' : defeated;
 
     // ─── Weapon indicator ───
-    const wName = weaponSystem ? weaponSystem.currentWeaponName : 'PISTOL';
+    const wName = weaponSystem ? weaponSystem.currentWeaponName(player) : 'PISTOL';
     if (this.weaponName) this.weaponName.textContent = wName;
 
     // ─── Minimap ───
