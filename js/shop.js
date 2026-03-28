@@ -167,9 +167,18 @@ export class Shop {
       this.ownedItems.add(item.id);
 
       // Add weapon to player's unlocked list so C key can cycle to it.
-      // Vehicles are reserved for Beta — coins are spent, noted below.
       if (item.category === 'Weapon' && !this.player.unlockedWeapons.includes(item.id)) {
         this.player.unlockedWeapons.push(item.id);
+      }
+
+      // Spawn vehicle near player
+      if (item.category === 'Vehicle' && this.vehicleManager) {
+        const dir = this.player.mesh.rotation.y;
+        const spawnPos = this.player.mesh.position.clone();
+        spawnPos.x += Math.sin(dir) * 4;
+        spawnPos.z += Math.cos(dir) * 4;
+        spawnPos.y = 0;
+        this.vehicleManager.spawnVehicle(item.id, spawnPos, dir);
       }
 
       // Flash green
@@ -185,9 +194,9 @@ export class Shop {
       this._updateBalance();
       this._refreshList();
 
-      // Show feedback — vehicles are Beta-only, weapons are active now
+      // Show feedback
       const msg = item.category === 'Vehicle'
-        ? `${item.name} reserved! Vehicles coming in Beta.`
+        ? `${item.name} is ready! Walk to it and press Space.`
         : `${item.name} unlocked! Press C to equip.`;
       this._showFeedback(msg, '#2ECC40');
 

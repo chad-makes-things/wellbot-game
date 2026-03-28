@@ -42,6 +42,9 @@ export class Player {
     // Grappling state — disables wall collision during pull
     this.isGrappling = false;
 
+    // Vehicle state
+    this.inVehicle = null;
+
     // Flash timer for damage feedback
     this._flashTimer = 0;
     this._originalColors = [];
@@ -243,6 +246,14 @@ export class Player {
 
   takeDamage(amount) {
     if (this.isDead) return;
+
+    // If in a vehicle with HP buffer, let the vehicle absorb damage first
+    if (this.inVehicle && this.inVehicle.maxHP > 0) {
+      const leftover = this.inVehicle.takeDamage(amount);
+      if (leftover <= 0) return; // vehicle absorbed all damage
+      amount = leftover;
+    }
+
     this.health = Math.max(0, this.health - amount);
 
     // Flash red

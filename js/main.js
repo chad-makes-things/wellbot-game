@@ -8,6 +8,7 @@ import { WeaponSystem } from './weapons.js';
 import { City }         from './city.js';
 import { HUD }          from './hud.js';
 import { Shop }         from './shop.js';
+import { VehicleManager } from './vehicles.js';
 
 // ─────────────────────────────────────────────
 // Renderer
@@ -200,6 +201,8 @@ enemyManager.spawnInitialWave(3);
 const weaponSystem = new WeaponSystem(scene);
 const hud          = new HUD(player, enemyManager);
 const shop         = new Shop(player);
+const vehicleManager = new VehicleManager(scene);
+shop.vehicleManager = vehicleManager; // so shop can spawn vehicles
 
 // Load initial chunks around spawn and get building data
 city.update(0, 0);
@@ -348,43 +351,99 @@ function gameLoop() {
   city.update(player.mesh.position.x, player.mesh.position.z);
   buildings = city.getBuildingData();
 
-  player.update(delta, keyState, cameraAzimuth);
+  // ─── Vehicle mount/dismount (Space near vehicle) ───
+  const inVehicle = player.inVehicle;
+  if (inVehicle) {
+    // In vehicle: Space dismounts (bike/car) or fires cannon (tank, handled in weapons)
+    if (justPressed['Space'] && !inVehicle.hasWeapon) {
+      vehicleManager.dismountVehicle(player);
+    } else if (justPressed['Space'] && inVehicle.hasWeapon) {
+      // Tank cannon — let weapon system handle it below
+    }
+    // Vehicle movement
+    vehicleManager.update(delta, keyState, cameraAzimuth, buildings, enemyManager.enemies, player);
+  } else {
+    // Not in vehicle: normal player update
+    player.update(delta, keyState, cameraAzimuth);
 
-  // Weapon cycle — C key
-  if (justPressed['KeyC'] && !gameState.isShopOpen && !player.isDead) {
-    player.currentWeaponIndex =
-      (player.currentWeaponIndex + 1) % player.unlockedWeapons.length;
-    // Big centered flash so the switch is unmissable
-    const newName = weaponSystem.currentWeaponName(player);
-    hud.flashWeaponSwitch(newName);
+    // Weapon cycle — C key
+    if (justPressed['KeyC'] && !gameState.isShopOpen && !player.isDead) {
+      player.currentWeaponIndex =
+        (player.currentWeaponIndex + 1) % player.unlockedWeapons.length;
+      const newName = weaponSystem.currentWeaponName(player);
+      hud.flashWeaponSwitch(newName);
+    }
+
+    // Jump — Shift key, only when grounded
+    if ((justPressed['ShiftLeft'] || justPressed['ShiftRight']) && player.isGrounded && !player.isDead) {
+      player.velocity.y = 12;
+      player.isGrounded = false;
+    }
+
+    resolveBuildingWalls(player, buildings);
+    resolveRooftops(player, buildings);
+
+    // Check for nearby vehicle to mount (Space when no enemy in close range)
+    if (justPressed['Space'] && !player.isDead) {
+      const nearby = vehicleManager.getNearbyVehicle(player.mesh.position);
+      if (nearby) {
+        // Only mount if no enemies within 6 units (prevents accidental mount during combat)
+        let enemyClose = false;
+        for (const e of enemyManager.enemies) {
+          if (e.isDead || !e.mesh.visible) continue;
+          const dSq = (e.mesh.position.x - player.mesh.position.x) ** 2 +
+                      (e.mesh.position.z - player.mesh.position.z) ** 2;
+          if (dSq < 36) { enemyClose = true; break; }
+        }
+        if (!enemyClose) {
+          vehicleManager.mountVehicle(nearby, player);
+        }
+      }
+    }
   }
 
-  // Jump — Shift key, only when grounded
-  if ((justPressed['ShiftLeft'] || justPressed['ShiftRight']) && player.isGrounded && !player.isDead) {
-    player.velocity.y = 12;
-    player.isGrounded = false;
+  // Check if vehicle was destroyed — eject player
+  if (inVehicle && inVehicle.isDestroyed) {
+    vehicleManager.dismountVehicle(player);
   }
 
-  resolveBuildingWalls(player, buildings);
-  resolveRooftops(player, buildings);
-
-  weaponSystem.update(
-    delta,
-    player,
-    enemyManager.enemies,
-    gameState,
-    keyState,
-    justPressed,
-    buildings
-  );
+  // Weapons: skip personal weapons while in vehicle (except tank cannon)
+  if (!inVehicle) {
+    weaponSystem.update(
+      delta,
+      player,
+      enemyManager.enemies,
+      gameState,
+      keyState,
+      justPressed,
+      buildings
+    );
+  } else if (inVehicle && inVehicle.hasWeapon) {
+    // Tank cannon — fire using weapon system's existing auto-aim
+    weaponSystem.update(
+      delta,
+      player,
+      enemyManager.enemies,
+      gameState,
+      keyState,
+      justPressed,
+      buildings
+    );
+  }
 
   enemyManager.updateDifficulty(player.totalCoinsEarned);
   enemyManager.update(delta, player, buildings);
 
   cameraFollow(player, delta);
 
-  // Camera shake
+  // Camera shake (combine weapon + vehicle shake)
   applyCameraShake(weaponSystem);
+  if (vehicleManager.cameraShake.active) {
+    const vi = vehicleManager.cameraShake.intensity;
+    _shakeOffset.x += (Math.random() - 0.5) * vi * 0.6;
+    _shakeOffset.y += (Math.random() - 0.5) * vi * 0.3;
+    _shakeOffset.z += (Math.random() - 0.5) * vi * 0.6;
+  }
   camera.position.x += _shakeOffset.x;
   camera.position.y += _shakeOffset.y;
   camera.position.z += _shakeOffset.z;
