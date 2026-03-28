@@ -73,6 +73,7 @@ const keyState = {
   ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
   Space: false, KeyZ: false, KeyX: false, KeyC: false, Enter: false,
   Escape: false, ShiftLeft: false, ShiftRight: false,
+  MetaLeft: false, MetaRight: false,
 };
 const prevKeyState = {};
 const justPressed  = {};
@@ -89,6 +90,10 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => {
   if (e.code in keyState) keyState[e.code] = false;
 });
+// Mac: Command key sometimes misses keyup when browser loses focus
+window.addEventListener('blur', () => {
+  for (const k in keyState) keyState[k] = false;
+});
 
 function updateInput() {
   for (const k in keyState) {
@@ -98,14 +103,40 @@ function updateInput() {
 }
 
 // ─────────────────────────────────────────────
-// Camera follow
+// Camera follow + snap-behind (Command key)
 // ─────────────────────────────────────────────
-const CAMERA_OFFSET = new THREE.Vector3(20, 30, 20);
+const CAMERA_DIST   = 28.28;  // horizontal distance from player (sqrt(20^2 + 20^2))
+const CAMERA_HEIGHT = 30;
 const CAMERA_LERP   = 0.08;
+const CAMERA_SNAP_LERP = 0.10; // how fast the snap-behind rotation lerps
 const cameraLookTarget = new THREE.Vector3(0, 0, 0);
 
-function cameraFollow(player) {
-  const targetPos = player.mesh.position.clone().add(CAMERA_OFFSET);
+// Default isometric angle: offset (20, 30, 20) → azimuth = atan2(20, 20) = PI/4
+let cameraAzimuth       = Math.PI / 4;  // current angle
+let cameraAzimuthTarget = Math.PI / 4;  // target angle (lerped toward)
+const DEFAULT_AZIMUTH   = Math.PI / 4;
+
+function cameraFollow(player, delta) {
+  // If Command is pressed, snap azimuth target to behind the player's facing
+  if (justPressed['MetaLeft'] || justPressed['MetaRight']) {
+    // Player faces rotation.y — camera should be behind, so add PI
+    cameraAzimuthTarget = player.mesh.rotation.y + Math.PI;
+  }
+
+  // Smoothly lerp azimuth toward target
+  // Use angle wrapping to avoid spinning the long way around
+  let diff = cameraAzimuthTarget - cameraAzimuth;
+  // Normalize to [-PI, PI]
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  cameraAzimuth += diff * CAMERA_SNAP_LERP;
+
+  // Compute offset from azimuth
+  const offsetX = Math.sin(cameraAzimuth) * CAMERA_DIST;
+  const offsetZ = Math.cos(cameraAzimuth) * CAMERA_DIST;
+  const offset = new THREE.Vector3(offsetX, CAMERA_HEIGHT, offsetZ);
+
+  const targetPos = player.mesh.position.clone().add(offset);
   camera.position.lerp(targetPos, CAMERA_LERP);
   cameraLookTarget.lerp(player.mesh.position, CAMERA_LERP);
   camera.lookAt(cameraLookTarget);
@@ -344,7 +375,7 @@ function gameLoop() {
 
   enemyManager.update(delta, player, buildings);
 
-  cameraFollow(player);
+  cameraFollow(player, delta);
 
   // Camera shake
   applyCameraShake(weaponSystem);

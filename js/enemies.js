@@ -10,6 +10,26 @@ const C_ENEMY_EYE      = 0xFF6B35;
 const C_COIN_GOLD      = 0xFFD700;
 const C_COIN_EMISSIVE  = 0xB8860B;
 const C_PUFF           = 0xE63946;
+const C_INDICATOR      = 0xE63946;
+
+// Shared indicator geometry + material (diamond shape via rotated box, depthTest off)
+let _indicatorGeo = null;
+let _indicatorMat = null;
+function getIndicatorGeo() {
+  if (!_indicatorGeo) _indicatorGeo = new THREE.BoxGeometry(0.45, 0.45, 0.45);
+  return _indicatorGeo;
+}
+function getIndicatorMat() {
+  if (!_indicatorMat) {
+    _indicatorMat = new THREE.MeshBasicMaterial({
+      color: C_INDICATOR,
+      transparent: true,
+      opacity: 0.85,
+      depthTest: false,  // renders through buildings
+    });
+  }
+  return _indicatorMat;
+}
 
 // AI distance thresholds (squared)
 const PURSUE_RANGE_SQ  = 15 * 15;    // 225
@@ -62,6 +82,14 @@ class Enemy {
     this.mesh = this._buildMesh();
     scene.add(this.mesh);
     this.mesh.visible = false; // hidden until positioned
+
+    // Floating indicator diamond — rendered above enemy, through buildings
+    this._indicator = new THREE.Mesh(getIndicatorGeo(), getIndicatorMat().clone());
+    this._indicator.rotation.set(Math.PI / 4, 0, Math.PI / 4); // diamond orientation
+    this._indicator.visible = false;
+    this._indicator.renderOrder = 999; // draw on top
+    scene.add(this._indicator);
+    this._indicatorBob = Math.random() * Math.PI * 2; // phase offset for bob
   }
 
   _buildMesh() {
@@ -132,6 +160,7 @@ class Enemy {
     this.mesh.visible = true;
     this.mesh.scale.setScalar(1);
     this._flashTimer = 0;
+    this._indicator.visible = true;
     // Restore colors
     for (const { mesh, color } of this._originalColors) {
       mesh.material.color.setHex(color);
@@ -223,6 +252,15 @@ class Enemy {
     // World bounds
     this.mesh.position.x = Math.max(-48, Math.min(48, this.mesh.position.x));
     this.mesh.position.z = Math.max(-48, Math.min(48, this.mesh.position.z));
+
+    // Update floating indicator position — bob above enemy
+    this._indicatorBob += delta * 2.0;
+    this._indicator.position.set(
+      this.mesh.position.x,
+      this.mesh.position.y + 2.8 + Math.sin(this._indicatorBob) * 0.15,
+      this.mesh.position.z
+    );
+    this._indicator.rotation.y += delta * 1.5; // slow spin
   }
 
   _animateWalk(delta, speedFactor) {
@@ -252,6 +290,7 @@ class Enemy {
   defeat() {
     this.isDead = true;
     this.mesh.visible = false;
+    this._indicator.visible = false;
     this.manager.onEnemyDefeated(this);
   }
 }
