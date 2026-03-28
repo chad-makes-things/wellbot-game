@@ -189,10 +189,11 @@ export class Player {
     if (keyState['ArrowRight']) inputX += 1;  // right
 
     // Rotate input by camera azimuth so "forward" always means "away from camera"
+    // Camera at azimuth a → forward = (-sin a, -cos a), right = (cos a, -sin a)
     const sinA = Math.sin(cameraAzimuth);
     const cosA = Math.cos(cameraAzimuth);
-    const dx = inputX * cosA - inputZ * sinA;
-    const dz = inputX * sinA + inputZ * cosA;
+    const dx =  inputX * cosA + inputZ * sinA;
+    const dz = -inputX * sinA + inputZ * cosA;
 
     const moveDir = new THREE.Vector3(dx, 0, dz);
     this.isMoving = moveDir.lengthSq() > 0;
