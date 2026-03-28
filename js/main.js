@@ -343,7 +343,7 @@ function gameLoop() {
   }
 
   // ─── Game systems update ───
-  player.update(delta, keyState);
+  player.update(delta, keyState, cameraAzimuth);
 
   // Weapon cycle — C key
   if (justPressed['KeyC'] && !gameState.isShopOpen && !player.isDead) {

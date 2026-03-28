@@ -166,7 +166,7 @@ export class Player {
     return group;
   }
 
-  update(delta, keyState) {
+  update(delta, keyState, cameraAzimuth) {
     if (this.isDead) return;
 
     // --- Flash damage feedback ---
@@ -180,12 +180,19 @@ export class Player {
       }
     }
 
-    // --- Movement ---
-    let dx = 0, dz = 0;
-    if (keyState['ArrowUp'])    { dx -= 1; dz -= 1; }
-    if (keyState['ArrowDown'])  { dx += 1; dz += 1; }
-    if (keyState['ArrowLeft'])  { dx -= 1; dz += 1; }
-    if (keyState['ArrowRight']) { dx += 1; dz -= 1; }
+    // --- Movement (relative to camera azimuth) ---
+    // Raw input: Up = forward (away from camera), Down = back, Left/Right = strafe
+    let inputX = 0, inputZ = 0;
+    if (keyState['ArrowUp'])    inputZ -= 1;  // forward
+    if (keyState['ArrowDown'])  inputZ += 1;  // back
+    if (keyState['ArrowLeft'])  inputX -= 1;  // left
+    if (keyState['ArrowRight']) inputX += 1;  // right
+
+    // Rotate input by camera azimuth so "forward" always means "away from camera"
+    const sinA = Math.sin(cameraAzimuth);
+    const cosA = Math.cos(cameraAzimuth);
+    const dx = inputX * cosA - inputZ * sinA;
+    const dz = inputX * sinA + inputZ * cosA;
 
     const moveDir = new THREE.Vector3(dx, 0, dz);
     this.isMoving = moveDir.lengthSq() > 0;
