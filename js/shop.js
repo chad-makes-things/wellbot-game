@@ -166,7 +166,8 @@ export class Shop {
       this.player.coins -= item.price;
       this.ownedItems.add(item.id);
 
-      // Add weapon to player's unlocked list so C key can cycle to it
+      // Add weapon to player's unlocked list so C key can cycle to it.
+      // Vehicles are reserved for Beta — coins are spent, noted below.
       if (item.category === 'Weapon' && !this.player.unlockedWeapons.includes(item.id)) {
         this.player.unlockedWeapons.push(item.id);
       }
@@ -184,8 +185,11 @@ export class Shop {
       this._updateBalance();
       this._refreshList();
 
-      // Show beta notice
-      this._showFeedback(`${item.name} unlocked! (Coming in Beta)`, '#2ECC40');
+      // Show feedback — vehicles are Beta-only, weapons are active now
+      const msg = item.category === 'Vehicle'
+        ? `${item.name} reserved! Vehicles coming in Beta.`
+        : `${item.name} unlocked! Press C to equip.`;
+      this._showFeedback(msg, '#2ECC40');
 
       // Auto-close after 600ms
       setTimeout(() => this.close(), 700);

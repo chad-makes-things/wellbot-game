@@ -437,7 +437,23 @@ export class WeaponSystem {
         continue;
       }
 
-      // Hit detection
+      // Building collision — stop bullet on wall impact
+      if (buildings) {
+        let blocked = false;
+        const bp = bullet.mesh.position;
+        for (const b of buildings) {
+          if (bp.y > b.h) continue; // bullet is above this building
+          if (bp.x > b.x - b.halfW && bp.x < b.x + b.halfW &&
+              bp.z > b.z - b.halfD && bp.z < b.z + b.halfD) {
+            bullet.release();
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) continue;
+      }
+
+      // Enemy hit detection
       let hit = false;
       for (const e of enemies) {
         if (e.isDead || !e.mesh.visible) continue;
